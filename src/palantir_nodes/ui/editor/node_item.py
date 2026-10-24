@@ -1,0 +1,221 @@
+"""Representación visual de un nodo, al estilo de Blender.
+
+Orden de filas: salidas (socket a la derecha), parámetros y entradas (socket a la
+izquierda). Los valores se muestran dentro del nodo y se editan en el panel de
+propiedades.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QGraphicsItem, QStyle
+
+from palantir_nodes.core.graph import NodeInstance
+from palantir_nodes.nodes.categories import get_category
+from palantir_nodes.nodes.specs import ParamKind, ParamSpec
+from palantir_nodes.ui.editor.socket_item import SocketItem
+from palantir_nodes.ui.theme import Colors
+
+
+@dataclass
+class _Row:
+    kind: str  # "output" | "param" | "input"
+    name: str
+    label: str
+    y: float
+    spec: ParamSpec | None = None  # parámetro o valor editable de una entrada
+
+
+class NodeItem(QGraphicsItem):
+    WIDTH = 190.0
+    HEADER = 24.0
+    ROW = 22.0
+    PAD = 6.0
+    CORNER = 6.0
+
+    def __init__(self, node: NodeInstance) -> None:
+        super().__init__()
+        self.node = node
+        self.node_id = node.id
+        self.definition = node.definition
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
+        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        self.setZValue(1)
+        self.setToolTip(self.definition.description or self.definition.label)
+
+        self._header_color = QColor(get_category(self.definition.category).color)
+        self._title_font = QFont()
+        self._title_font.setPointSizeF(9.0)
+        self._title_font.setBold(True)
+        self._font = QFont()
+        self._font.setPointSizeF(8.5)
+        self._connected: set[str] = set()
+        self.error: str | None = None
+
+        self.input_sockets: dict[str, SocketItem] = {}
+        self.output_sockets: dict[str, SocketItem] = {}
+        self._rows: list[_Row] = []
+        self._build()
+
+    def _build(self) -> None:
+        y = self.HEADER + self.PAD
+        for spec in self.definition.outputs:
+            socket = SocketItem(self, spec.name, spec.type, is_output=True)
+            socket.setPos(self.WIDTH, y + self.ROW / 2)
+            self.output_sockets[spec.name] = socket
+            self._rows.append(_Row("output", spec.name, spec.display_label, y))
+            y += self.ROW
+        for spec in self.definition.params:
+            self._rows.append(_Row("param", spec.name, spec.display_label, y, spec))
+            y += self.ROW
+        for spec in self.definition.inputs:
+            socket = SocketItem(self, spec.name, spec.type, is_output=False)
+            socket.setPos(0.0, y + self.ROW / 2)
+            self.input_sockets[spec.name] = socket
+            self._rows.append(_Row("input", spec.name, spec.display_label, y, spec.value_spec()))
+            y += self.ROW
+        self._height = y + self.PAD
+
+    @property
+    def height(self) -> float:
+        return self._height
+
+    def socket(self, name: str, is_output: bool) -> SocketItem | None:
+        return (self.output_sockets if is_output else self.input_sockets).get(name)
+
+    def set_connected_inputs(self, names: set[str]) -> None:
+        if names != self._connected:
+            self._connected = set(names)
+            self.update()
+
+    def refresh(self) -> None:
+        self.update()
+
+    # -- geometría ---------------------------------------------------------------------
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(-2, -2, self.WIDTH + 4, self._height + 4)
+
+    def _body_path(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.WIDTH, self._height), self.CORNER, self.CORNER)
+        return path
+
+    def shape(self) -> QPainterPath:
+        return self._body_path()
+
+    # -- pintado -----------------------------------------------------------------------
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        body = self._body_path()
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+
+        painter.fillPath(body, QColor(Colors.NODE_BODY))
+        painter.save()
+        painter.setClipPath(body)
+        painter.fillRect(QRectF(0, 0, self.WIDTH, self.HEADER), self._header_color)
+        painter.restore()
+
+        if self.error:
+            pen = QPen(QColor(Colors.LINK_INVALID), 2.0)
+        elif selected:
+            pen = QPen(QColor(Colors.NODE_SELECTED), 1.8)
+        else:
+            pen = QPen(QColor(Colors.NODE_BORDER), 1.0)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(body)
+
+        painter.setFont(self._title_font)
+        painter.setPen(QColor(Colors.NODE_TEXT))
+        metrics = QFontMetricsF(self._title_font)
+        title_rect = QRectF(8, 0, self.WIDTH - 16, self.HEADER)
+        title = metrics.elidedText(
+            self.definition.label, Qt.TextElideMode.ElideRight, title_rect.width()
+        )
+        painter.drawText(
+            title_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title
+        )
+
+        painter.setFont(self._font)
+        for row in self._rows:
+            self._paint_row(painter, row)
+
+    def _paint_row(self, painter: QPainter, row: _Row) -> None:
+        text_color = QColor(Colors.NODE_TEXT)
+        align_v = Qt.AlignmentFlag.AlignVCenter
+        if row.kind == "output":
+            rect = QRectF(10, row.y, self.WIDTH - 20, self.ROW)
+            painter.setPen(text_color)
+            painter.drawText(rect, align_v | Qt.AlignmentFlag.AlignRight, row.label)
+            return
+        if row.kind == "input" and (row.spec is None or row.name in self._connected):
+            rect = QRectF(12, row.y, self.WIDTH - 22, self.ROW)
+            painter.setPen(text_color)
+            painter.drawText(rect, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
+            return
+
+        values = self.node.params if row.kind == "param" else self.node.input_values
+        self._paint_field(painter, row, values.get(row.name))
+
+    def _paint_field(self, painter: QPainter, row: _Row, value: Any) -> None:
+        spec = row.spec
+        left = 12.0 if row.kind == "input" else 8.0
+        field = QRectF(left, row.y + 2, self.WIDTH - left - 8, self.ROW - 4)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(Colors.NODE_FIELD))
+        painter.drawRoundedRect(field, 4, 4)
+
+        inner = field.adjusted(6, 0, -6, 0)
+        painter.setPen(QColor(Colors.NODE_TEXT))
+        align_v = Qt.AlignmentFlag.AlignVCenter
+        metrics = QFontMetricsF(self._font)
+
+        if spec.kind is ParamKind.BOOL:
+            box = QRectF(inner.left(), inner.center().y() - 5, 10, 10)
+            painter.setBrush(QColor(Colors.ACCENT) if value else QColor(Colors.BASE))
+            painter.setPen(QPen(QColor("#151515"), 1))
+            painter.drawRoundedRect(box, 2, 2)
+            painter.setPen(QColor(Colors.NODE_TEXT))
+            painter.drawText(
+                inner.adjusted(16, 0, 0, 0), align_v | Qt.AlignmentFlag.AlignLeft, row.label
+            )
+            return
+
+        if spec.kind is ParamKind.COLOR:
+            painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
+            swatch = QRectF(inner.right() - 46, inner.top() + 3, 46, inner.height() - 6)
+            painter.setBrush(QColor(*value))
+            painter.setPen(QPen(QColor("#151515"), 1))
+            painter.drawRoundedRect(swatch, 3, 3)
+            return
+
+        text = spec.format(value)
+        label_width = metrics.horizontalAdvance(row.label + "  ")
+        value_text = metrics.elidedText(
+            text, Qt.TextElideMode.ElideMiddle, max(20.0, inner.width() - label_width)
+        )
+        painter.setPen(QColor(Colors.TEXT_DIM))
+        painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
+        painter.setPen(QColor(Colors.NODE_TEXT))
+        painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignRight, value_text)
+
+    # -- eventos -----------------------------------------------------------------------
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "node_item_moved"):
+                scene.node_item_moved(self.node_id)
+        return super().itemChange(change, value)
+
+    def scene_position(self) -> tuple[float, float]:
+        pos: QPointF = self.pos()
+        return (pos.x(), pos.y())
