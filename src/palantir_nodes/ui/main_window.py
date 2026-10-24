@@ -8,6 +8,7 @@ import shiboken6
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
+    QDialog,
     QDockWidget,
     QFileDialog,
     QLabel,
@@ -29,19 +30,16 @@ from palantir_nodes.persistence import (
     read_project,
     write_project,
 )
+from palantir_nodes.preferences import Preferences, load_preferences, save_preferences
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
+from palantir_nodes.ui.preferences_dialog import PreferencesDialog
 from palantir_nodes.ui.properties.panel import PropertiesPanel
 from palantir_nodes.ui.run_controller import RunController
 from palantir_nodes.ui.viewer.panel import ViewerPanel
 
 APP_NAME = "Palantir Nodes"
-
-# Acciones de la barra superior que todavía no tienen implementación real.
-_PENDING = {
-    "prefs": ("Preferencias…", "", "Preferencias: pendiente"),
-}
 
 PROJECT_FILTER = "Proyecto de Palantir Nodes (*.json);;Todos los archivos (*)"
 MAX_WARNINGS_SHOWN = 12
@@ -50,6 +48,8 @@ MAX_WARNINGS_SHOWN = 12
 class MainWindow(QMainWindow):
     def __init__(self, registry: NodeRegistry, startup_messages: list[str] | None = None) -> None:
         super().__init__()
+        self.prefs, pref_warnings = load_preferences()
+        startup_messages = [*(startup_messages or []), *pref_warnings]
         self.registry = registry
         self.graph = Graph(registry)
         self.undo_stack = QUndoStack(self)
@@ -86,6 +86,8 @@ class MainWindow(QMainWindow):
         self.view.zoom_changed.connect(self._update_zoom_label)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self.graph.subscribe(self._on_graph_event)
+        self._apply_preferences()
+        self._apply_new_project_defaults()
 
         self.resize(1400, 860)
         self._update_title()
@@ -155,15 +157,10 @@ class MainWindow(QMainWindow):
         self.action_auto.setToolTip("Ejecutar automáticamente al modificar el grafo")
         self.action_auto.toggled.connect(self._set_auto_run)
 
-        self.pending_actions: dict[str, QAction] = {}
-        for key, (text, shortcut, reason) in _PENDING.items():
-            action = QAction(text, self)
-            if shortcut:
-                action.setShortcut(QKeySequence(shortcut))
-            action.setEnabled(False)
-            action.setToolTip(f"{text.rstrip('…')} — no implementado ({reason})")
-            action.setStatusTip(f"No implementado todavía: {reason}")
-            self.pending_actions[key] = action
+        self.action_prefs = QAction("Preferencias…", self)
+        self.action_prefs.setShortcut(QKeySequence("Ctrl+,"))
+        self.action_prefs.setToolTip("Preferencias de la aplicación (Ctrl+,)")
+        self.action_prefs.triggered.connect(self.open_preferences)
 
         self.action_undo = self.undo_stack.createUndoAction(self, "Deshacer")
         self.action_undo.setShortcut(QKeySequence("Ctrl+Z"))
@@ -176,7 +173,6 @@ class MainWindow(QMainWindow):
 
     def _create_menus(self) -> None:
         bar = self.menuBar()
-        p = self.pending_actions
         file_menu = bar.addMenu("&Archivo")
         file_menu.addAction(self.action_new)
         file_menu.addAction(self.action_open)
@@ -198,7 +194,7 @@ class MainWindow(QMainWindow):
             else:
                 edit_menu.addAction(action)
         edit_menu.addSeparator()
-        edit_menu.addAction(p["prefs"])
+        edit_menu.addAction(self.action_prefs)
 
         view_menu = bar.addMenu("&Ver")
         view_menu.addAction(self.view.action_frame)
@@ -218,7 +214,6 @@ class MainWindow(QMainWindow):
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        p = self.pending_actions
         toolbar.addAction(self.action_new)
         toolbar.addAction(self.action_open)
         toolbar.addAction(self.action_save)
@@ -231,7 +226,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.action_export)
         toolbar.addSeparator()
-        toolbar.addAction(p["prefs"])
+        toolbar.addAction(self.action_prefs)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _create_statusbar(self) -> None:
@@ -304,6 +299,62 @@ class MainWindow(QMainWindow):
 
     def _on_realtime_stopped(self, reason: str) -> None:
         self.show_message(f"Tiempo real detenido: {reason}" if reason else "Tiempo real detenido")
+
+    # -- preferencias ------------------------------------------------------------------
+
+    def _apply_preferences(self) -> None:
+        """Aplica al editor y al motor las preferencias que afectan a la sesión actual."""
+        self.view.set_grid_visible(self.prefs.show_grid)
+        self.view.zoom_step = self.prefs.zoom_speed
+        self.runner.set_preview_rate(self.prefs.preview_rate_hz)
+
+    def _apply_new_project_defaults(self) -> None:
+        """Estado de Auto y de las previsualizaciones para un proyecto nuevo."""
+        for action, value in (
+            (self.action_auto, self.prefs.auto_run_default),
+            (self.action_previews, self.prefs.previews_default),
+        ):
+            action.blockSignals(True)
+            action.setChecked(value)
+            action.blockSignals(False)
+        self.runner.auto_run = self.prefs.auto_run_default
+        self.runner.set_previews(self.prefs.previews_default)
+        self.project.auto_run = self.prefs.auto_run_default
+        self.project.previews = self.prefs.previews_default
+
+    def open_preferences(self) -> None:
+        dialog = PreferencesDialog(self.prefs, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_preferences(dialog.preferences())
+
+    def set_preferences(self, prefs: Preferences) -> bool:
+        """Aplica y guarda las preferencias. ``False`` si no se pudieron guardar."""
+        self.prefs = prefs
+        self._apply_preferences()
+        return self._save_preferences(warn=True)
+
+    def _save_preferences(self, *, warn: bool) -> bool:
+        try:
+            save_preferences(self.prefs)
+        except OSError as exc:
+            if warn:
+                QMessageBox.warning(
+                    self, APP_NAME, f"No se pudieron guardar las preferencias:\n{exc}"
+                )
+            return False
+        return True
+
+    def _remember_project(self, path: Path) -> None:
+        if self.prefs.last_project != str(path):
+            self.prefs.last_project = str(path)
+            self._save_preferences(warn=False)  # recordar el último proyecto no es crítico
+
+    def reopen_last_project(self) -> bool:
+        """Abre el último proyecto si la preferencia está activada y el archivo existe."""
+        if not (self.prefs.reopen_last_project and self.prefs.last_project):
+            return False
+        path = Path(self.prefs.last_project)
+        return path.is_file() and self.load_project(path)
 
     def _set_previews(self, enabled: bool) -> None:
         self.runner.set_previews(enabled)
@@ -421,6 +472,7 @@ class MainWindow(QMainWindow):
         self.project_path = path
         self.undo_stack.setClean()
         self._update_title()
+        self._remember_project(path)
         self.show_message(f"Guardado en {path}", 5000)
         return True
 
@@ -468,6 +520,7 @@ class MainWindow(QMainWindow):
         self._update_viewer()
         self._update_title()
         self._update_counts()
+        self._remember_project(Path(path))
         self.show_message(f"Abierto {path}", 5000)
         if project.warnings:
             shown = project.warnings[:MAX_WARNINGS_SHOWN]
@@ -504,8 +557,7 @@ class MainWindow(QMainWindow):
             self.runner.stop_realtime(wait=True)
             self.controller.new_graph()
             self.project, self.project_path = ProjectData(), None
-            self.project.auto_run = self.runner.auto_run
-            self.project.previews = self.runner.preview_enabled
+            self._apply_new_project_defaults()
             self.last_result = None
             self.undo_stack.setClean()
             self.view.frame_all()

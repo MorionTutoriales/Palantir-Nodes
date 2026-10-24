@@ -45,7 +45,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 5, proyectos, frames, edición y previsualización en el nodo (Fase 6, partes 1-4)
+## Estado: Fases 1 a 5 y Fase 6 (proyectos, frames, edición, previsualización y preferencias)
 
 ### Implementado
 
@@ -138,17 +138,30 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   o desactivan en **Ver → Previsualizaciones en los nodos** (el estado se guarda en el
   proyecto); desactivadas, ni siquiera se calculan.
 
+- **Preferencias** (`Ctrl+,` o la barra superior; se guardan al aceptar y se aplican al instante):
+  - **General:** reabrir el último proyecto al iniciar.
+  - **Editor:** mostrar u ocultar la cuadrícula y velocidad del zoom de la rueda (1,05–1,50).
+  - **Ejecución (valores para proyectos nuevos):** Auto, previsualizaciones en los nodos y máximo
+    de miniaturas por segundo en tiempo real (5–30; este último se aplica incluso a una sesión
+    en marcha). Un proyecto guardado conserva su propio Auto y previsualizaciones.
+  - Se guardan en `%APPDATA%\PalantirNodes\preferences.json` (Windows) o
+    `~/.config/palantir-nodes/` (otros), de forma atómica. Un archivo ausente, dañado o con valores
+    inválidos nunca impide arrancar: se usan los valores por defecto (los inválidos se corrigen
+    uno a uno) y se avisa en la barra de estado. La variable `PALANTIR_NODES_CONFIG_DIR` cambia la
+    carpeta (las pruebas la usan para no tocar la configuración real).
+  - Los textos estándar de Qt (Guardar, Cancelar, selector de color…) se muestran en español.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Preferencias** (resto de la Fase 6) y varios nodos de la especificación original
-  (p. ej. Add/Subtract entre imágenes, Convert Color). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
+- **Varios nodos de la especificación original** (p. ej. Add/Subtract entre imágenes, Convert
+  Color). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
   copiar/pegar.
 
-Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
+Todas las acciones de la barra superior funcionan.
 
 ### Atajos (con el foco en el editor)
 
@@ -187,5 +200,6 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
     deshacer, sin mover el nodo y sin disparar atajos mientras se escribe.
 12. Cada nodo con imagen muestra su miniatura tras ejecutar y en tiempo real; se puede
     desactivar y no se calcula si está desactivada.
-13. `pytest` pasa (381 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
-    persistencia, frames, edición y previsualización en el nodo y UI real).
+13. Las preferencias se guardan, se aplican al instante y un archivo dañado no impide arrancar.
+14. `pytest` pasa (414 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia, frames, edición, previsualización, preferencias y UI real).

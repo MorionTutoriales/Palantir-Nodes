@@ -49,6 +49,8 @@ class NodeView(QGraphicsView):
         self.registry = registry
         self._panning = False
         self._pan_last = QPointF()
+        self.grid_visible = True
+        self.zoom_step = ZOOM_STEP
 
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
@@ -138,6 +140,11 @@ class NodeView(QGraphicsView):
             local = self.viewport().rect().center()
         return self.viewport().mapToGlobal(local), self.mapToScene(local)
 
+    def set_grid_visible(self, visible: bool) -> None:
+        if visible != self.grid_visible:
+            self.grid_visible = visible
+            self.viewport().update()
+
     def state(self) -> dict:
         """Zoom y punto central actuales (para guardarlos en el proyecto)."""
         center = self.mapToScene(self.viewport().rect().center())
@@ -166,6 +173,8 @@ class NodeView(QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         painter.fillRect(rect, QColor(Colors.EDITOR_BG))
+        if not self.grid_visible:
+            return
         zoom = self.zoom
         major_step = GRID_STEP * GRID_MAJOR_EVERY
         steps = [(major_step, Colors.GRID_MAJOR)]
@@ -197,7 +206,7 @@ class NodeView(QGraphicsView):
         delta = event.angleDelta().y()
         if delta == 0:
             return
-        factor = ZOOM_STEP ** (delta / 120)
+        factor = self.zoom_step ** (delta / 120)
         target = max(ZOOM_MIN, min(ZOOM_MAX, self.zoom * factor))
         factor = target / self.zoom
         if abs(factor - 1.0) > 1e-6:

@@ -159,8 +159,7 @@ def test_frame_all_and_zoom(window):
 
 
 def test_pending_actions_are_disabled(window):
-    for action in window.pending_actions.values():
-        assert not action.isEnabled()
+    assert window.action_prefs.isEnabled()
     assert window.action_new.isEnabled()
 
 

@@ -26,6 +26,7 @@ _TRIGGERS = {
     GraphEventKind.CLEARED,
 }
 DEBOUNCE_MS = 60
+DEFAULT_PREVIEW_RATE_HZ = 15
 
 
 class _Worker(QObject):
@@ -72,6 +73,7 @@ class RunController(QObject):
         self._rt_reason = ""
         self._paused = False
         self._preview_enabled = True
+        self._preview_rate_hz = DEFAULT_PREVIEW_RATE_HZ
 
         self._thread = QThread(self)
         self._thread.setObjectName("palantir-engine")
@@ -138,7 +140,9 @@ class RunController(QObject):
         self._timer.stop()
         self._rt_reason = ""
         self._paused = False
-        worker = RealtimeWorker(plan, side_effects, self._preview_max())
+        worker = RealtimeWorker(
+            plan, side_effects, self._preview_max(), 1.0 / self._preview_rate_hz
+        )
         thread = QThread()
         thread.setObjectName("palantir-realtime")
         worker.moveToThread(thread)
@@ -175,6 +179,16 @@ class RunController(QObject):
         self._preview_enabled = enabled
         if self._rt_worker is not None:
             self._rt_worker.set_preview_max(self._preview_max())
+
+    @property
+    def preview_rate_hz(self) -> int:
+        return self._preview_rate_hz
+
+    def set_preview_rate(self, hz: int) -> None:
+        """Máximo de miniaturas por segundo en tiempo real (también en una sesión en marcha)."""
+        self._preview_rate_hz = max(1, int(hz))
+        if self._rt_worker is not None:
+            self._rt_worker.set_preview_interval(1.0 / self._preview_rate_hz)
 
     def _preview_max(self) -> tuple[int, int] | None:
         return PREVIEW_MAX if self._preview_enabled else None

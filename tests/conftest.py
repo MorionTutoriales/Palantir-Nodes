@@ -80,3 +80,9 @@ def video_path(tmp_path):
         writer.write(frame)
     writer.release()
     return str(path)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config_dir(tmp_path_factory, monkeypatch):
+    """Ninguna prueba lee ni escribe las preferencias reales del usuario."""
+    monkeypatch.setenv("PALANTIR_NODES_CONFIG_DIR", str(tmp_path_factory.mktemp("config")))

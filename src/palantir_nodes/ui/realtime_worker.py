@@ -27,10 +27,12 @@ class RealtimeWorker(QObject):
         plan: ExecutionPlan,
         side_effects: bool,
         preview_max: tuple[int, int] | None = None,
+        preview_interval: float = 0.066,
     ) -> None:
         super().__init__()
         self._plan = plan
         self._preview_max = preview_max
+        self._preview_interval = preview_interval
         self._side_effects = side_effects
         self._lock = threading.Lock()
         self._new_plan: ExecutionPlan | None = None
@@ -54,6 +56,9 @@ class RealtimeWorker(QObject):
 
     def set_preview_max(self, preview_max: tuple[int, int] | None) -> None:
         self._preview_max = preview_max  # asignación atómica; la lee el bucle en cada vuelta
+
+    def set_preview_interval(self, seconds: float) -> None:
+        self._preview_interval = seconds
 
     def update_plan(self, plan: ExecutionPlan) -> None:
         with self._lock:
@@ -98,6 +103,7 @@ class RealtimeWorker(QObject):
                     session.set_plan(plan)
 
                 session.preview_size = self._preview_max
+                session.preview_interval = self._preview_interval
                 started = time.perf_counter()
                 result = session.step()
                 if result is None:
