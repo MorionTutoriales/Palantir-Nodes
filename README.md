@@ -45,7 +45,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 5 y guardado de proyectos (Fase 6, parte 1)
+## Estado: Fases 1 a 5, guardado de proyectos y frames (Fase 6, partes 1-2)
 
 ### Implementado
 
@@ -106,14 +106,25 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     cuando cambie el formato.
   - Las rutas de archivos de imagen/video se guardan tal cual (absolutas si así se eligieron).
 
+- **Frames (grupos visuales):** `Ctrl+J` envuelve los nodos seleccionados en un frame; también
+  desde el menú de clic derecho ("Añadir frame aquí") o Editar. Se mueve arrastrando su
+  **título** (lo acompañan los nodos y frames que contiene por completo, en un solo paso de
+  deshacer) y se redimensiona con la **esquina inferior derecha**. Doble clic en el título o
+  clic derecho → Renombrar / Cambiar color; el panel de propiedades edita título y color.
+  Eliminar un frame **no** elimina sus nodos. El cuerpo del frame no captura el ratón, así que
+  se pueden seleccionar y mover los nodos de dentro con normalidad. Los frames son solo
+  visuales: no afectan al motor ni al script exportado. Se guardan en el proyecto (campo
+  opcional `frames`; los proyectos anteriores siguen abriéndose).
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Frames/grupos visuales, previsualización dentro del nodo, edición de valores dentro del
-  nodo, preferencias** (resto de la Fase 6).
+- **Previsualización dentro del nodo, edición de valores dentro del nodo, preferencias**
+  (resto de la Fase 6). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
+  copiar/pegar.
 
 Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 
@@ -128,6 +139,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 | Duplicar / Copiar / Pegar | `Shift+D` / `Ctrl+C` / `Ctrl+V` (en el cursor) |
 | Eliminar | `X` / `Supr` |
 | Deshacer / Rehacer | `Ctrl+Z` / `Ctrl+Shift+Z` o `Ctrl+Y` |
+| Enmarcar selección en un frame | `Ctrl+J` |
 | Encuadrar todo | `Inicio` |
 | Cancelar conexión en curso | `Esc` o clic derecho |
 
@@ -147,5 +159,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 8. Tras detener, terminar o cerrar, el archivo de video puede borrarse (no queda abierto).
 9. Guardar y reabrir un proyecto reproduce el mismo grafo, zoom y posición; un archivo dañado
    no destruye el proyecto abierto ni el archivo guardado anterior.
-10. `pytest` pasa (278 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
-    persistencia y UI real).
+10. Un frame agrupa y mueve sus nodos como un solo paso de deshacer, se redimensiona, se
+    guarda y se reabre, y no cambia el resultado ni el script exportado.
+11. `pytest` pasa (314 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia, frames y UI real).

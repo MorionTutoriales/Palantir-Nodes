@@ -13,10 +13,12 @@ from PySide6.QtCore import QMimeData, QObject, QPointF, Signal
 from PySide6.QtGui import QGuiApplication, QUndoStack
 
 from palantir_nodes.core.errors import PalantirError
-from palantir_nodes.core.graph import Graph, Link, new_id
+from palantir_nodes.core.graph import Frame, Graph, Link, new_id, normalize_frame_fields
 from palantir_nodes.ui.editor.commands import (
+    AddFrameCommand,
     AddItemsCommand,
     ConnectCommand,
+    EditFramesCommand,
     MoveNodesCommand,
     RemoveItemsCommand,
     SetValueCommand,
@@ -24,6 +26,10 @@ from palantir_nodes.ui.editor.commands import (
 
 if TYPE_CHECKING:
     from palantir_nodes.ui.editor.scene import NodeScene
+
+FRAME_COLORS = ("#4A6FA5", "#5E9F6E", "#A5714A", "#8A5AA5", "#A59C4A", "#4A9FA5")
+FRAME_PADDING = 30.0
+FRAME_TITLE_HEIGHT = 26.0
 
 CLIPBOARD_MIME = "application/x-palantir-nodes"
 CLIPBOARD_FORMAT = "palantir-nodes/clipboard"
@@ -56,16 +62,88 @@ class EditorController(QObject):
             return
         node_ids = self.scene.selected_node_ids()
         link_ids = self.scene.selected_link_ids()
-        self.remove_items(node_ids, link_ids)
+        self.remove_items(node_ids, link_ids, self.scene.selected_frame_ids())
 
-    def remove_items(self, node_ids: list[str], link_ids: list[str]) -> None:
-        if not node_ids and not link_ids:
+    def remove_items(
+        self, node_ids: list[str], link_ids: list[str], frame_ids: list[str] | None = None
+    ) -> None:
+        frame_ids = frame_ids or []
+        if not node_ids and not link_ids and not frame_ids:
             return
         if node_ids:
             text = f"Eliminar {len(node_ids)} nodo(s)"
-        else:
+        elif link_ids:
             text = f"Eliminar {len(link_ids)} conexión(es)"
-        self.undo_stack.push(RemoveItemsCommand(self.graph, node_ids, link_ids, text))
+        else:
+            text = f"Eliminar {len(frame_ids)} frame(s)"
+        self.undo_stack.push(RemoveItemsCommand(self.graph, node_ids, link_ids, text, frame_ids))
+
+    # -- frames ------------------------------------------------------------------------
+
+    def add_frame(
+        self,
+        x: float,
+        y: float,
+        width: float = 320.0,
+        height: float = 220.0,
+        title: str = "Frame",
+        color: str | None = None,
+    ) -> str:
+        frame = Frame(
+            new_id(),
+            title,
+            color or FRAME_COLORS[len(self.graph.frames) % len(FRAME_COLORS)],
+            x,
+            y,
+            width,
+            height,
+        )
+        self.undo_stack.push(AddFrameCommand(self.graph, frame))
+        if self.scene is not None:
+            self.scene.select_frames([frame.id])
+        return frame.id
+
+    def frame_selection(self, title: str = "Frame") -> str | None:
+        """Crea un frame que envuelve los nodos seleccionados."""
+        if self.scene is None:
+            return None
+        rect = self.scene.selected_nodes_rect()
+        if rect is None:
+            self.status_message.emit("Selecciona nodos para enmarcarlos")
+            return None
+        pad = FRAME_PADDING
+        return self.add_frame(
+            rect.left() - pad,
+            rect.top() - pad - FRAME_TITLE_HEIGHT,
+            rect.width() + 2 * pad,
+            rect.height() + 2 * pad + FRAME_TITLE_HEIGHT,
+            title,
+        )
+
+    def edit_frame(self, frame_id: str, **fields: Any) -> None:
+        """Cambia título, color, posición o tamaño (un paso de deshacer)."""
+        self.edit_frames({frame_id: fields})
+
+    def edit_frames(
+        self,
+        changes: dict[str, dict[str, Any]],
+        node_moves: dict[str, tuple[tuple[float, float], tuple[float, float]]] | None = None,
+    ) -> None:
+        frames: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+        try:
+            for frame_id, fields in changes.items():
+                frame = self.graph.frame(frame_id)
+                new = normalize_frame_fields(fields)
+                old = {name: getattr(frame, name) for name in new}
+                new = {k: v for k, v in new.items() if old[k] != v}
+                if new:
+                    frames[frame_id] = ({k: old[k] for k in new}, new)
+        except PalantirError as exc:
+            self.status_message.emit(str(exc))
+            return
+        moves = {k: v for k, v in (node_moves or {}).items() if v[0] != v[1]}
+        if frames or moves:
+            self.undo_stack.push(EditFramesCommand(self.graph, frames, moves))
 
     def move_nodes(self, moves: dict[str, tuple[tuple[float, float], tuple[float, float]]]) -> None:
         moves = {k: v for k, v in moves.items() if v[0] != v[1] and k in self.graph.nodes}

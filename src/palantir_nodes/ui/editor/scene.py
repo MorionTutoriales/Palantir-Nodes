@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsSceneMouseEvent
 
-from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind, Link, NodeInstance
+from palantir_nodes.core.graph import Frame, Graph, GraphEvent, GraphEventKind, Link, NodeInstance
 from palantir_nodes.core.validation import ConnectionCheck, Endpoint, check_endpoints
 from palantir_nodes.ui.editor.controller import EditorController
+from palantir_nodes.ui.editor.frame_item import FrameItem
 from palantir_nodes.ui.editor.link_item import DragLinkItem, LinkItem
 from palantir_nodes.ui.editor.node_item import NodeItem
 from palantir_nodes.ui.editor.socket_item import SocketItem
@@ -32,6 +33,7 @@ class _LinkDrag:
 
 class NodeScene(QGraphicsScene):
     status_message = Signal(str)
+    frame_rename_requested = Signal(str)
 
     def __init__(self, graph: Graph, controller: EditorController, parent=None) -> None:
         super().__init__(parent)
@@ -41,6 +43,8 @@ class NodeScene(QGraphicsScene):
         controller.scene = self
         self.node_items: dict[str, NodeItem] = {}
         self.link_items: dict[str, LinkItem] = {}
+        self.frame_items: dict[str, FrameItem] = {}
+        self.suppress_node_moves = False  # lo activa un frame mientras arrastra sus nodos
         self._links_by_node: dict[str, set[str]] = {}
         self._drag: _LinkDrag | None = None
         self._press_positions: dict[str, tuple[float, float]] = {}
@@ -55,9 +59,14 @@ class NodeScene(QGraphicsScene):
             self.removeItem(item)
         for item in list(self.node_items.values()):
             self.removeItem(item)
+        for item in list(self.frame_items.values()):
+            self.removeItem(item)
         self.node_items.clear()
         self.link_items.clear()
+        self.frame_items.clear()
         self._links_by_node.clear()
+        for frame in self.graph.frames.values():
+            self._add_frame_item(frame)
         for node in self.graph.nodes.values():
             self._add_node_item(node)
         for link in self.graph.links.values():
@@ -83,8 +92,23 @@ class NodeScene(QGraphicsScene):
             self._add_link_item(event.link)
         elif kind is GraphEventKind.LINK_REMOVED:
             self._remove_link_item(event.link)
+        elif kind is GraphEventKind.FRAME_ADDED:
+            self._add_frame_item(self.graph.frame(event.frame_id))
+        elif kind is GraphEventKind.FRAME_REMOVED:
+            item = self.frame_items.pop(event.frame_id, None)
+            if item is not None:
+                self.removeItem(item)
+        elif kind is GraphEventKind.FRAME_CHANGED:
+            item = self.frame_items.get(event.frame_id)
+            if item is not None:
+                item.sync(self.graph.frame(event.frame_id))
         elif kind is GraphEventKind.CLEARED:
             self._rebuild()
+
+    def _add_frame_item(self, frame: Frame) -> None:
+        item = FrameItem(frame)
+        self.addItem(item)
+        self.frame_items[frame.id] = item
 
     def _add_node_item(self, node: NodeInstance) -> None:
         item = NodeItem(node)
@@ -147,10 +171,29 @@ class NodeScene(QGraphicsScene):
     def selected_link_ids(self) -> list[str]:
         return [i.link_id for i in self.selectedItems() if isinstance(i, LinkItem)]
 
+    def selected_frame_ids(self) -> list[str]:
+        return [i.frame_id for i in self.selectedItems() if isinstance(i, FrameItem)]
+
+    def selected_nodes_rect(self) -> QRectF | None:
+        """Rectángulo que envuelve los nodos seleccionados (``None`` si no hay)."""
+        rect: QRectF | None = None
+        for item in self.selectedItems():
+            if isinstance(item, NodeItem):
+                bounds = item.sceneBoundingRect()
+                rect = bounds if rect is None else rect.united(bounds)
+        return rect
+
     def select_nodes(self, node_ids: list[str]) -> None:
         self.clearSelection()
         for node_id in node_ids:
             item = self.node_items.get(node_id)
+            if item is not None:
+                item.setSelected(True)
+
+    def select_frames(self, frame_ids: list[str]) -> None:
+        self.clearSelection()
+        for frame_id in frame_ids:
+            item = self.frame_items.get(frame_id)
             if item is not None:
                 item.setSelected(True)
 
@@ -196,6 +239,11 @@ class NodeScene(QGraphicsScene):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        if self.suppress_node_moves:
+            # Un frame acaba de registrar el movimiento (y el de los nodos que contiene).
+            self.suppress_node_moves = False
+            self._press_positions = {}
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._press_positions:
             moves = {}
             for node_id, old in self._press_positions.items():

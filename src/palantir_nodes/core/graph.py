@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -68,6 +70,68 @@ class Link:
         )
 
 
+FRAME_MIN_WIDTH = 80.0
+FRAME_MIN_HEIGHT = 60.0
+FRAME_DEFAULT_COLOR = "#4A6FA5"
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _finite(value: Any, what: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise GraphError(f"Frame: '{what}' debe ser un número finito")
+    return float(value)
+
+
+def normalize_frame_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """Valida y normaliza campos de frame. Lanza :class:`GraphError` si alguno es inválido."""
+    clean: dict[str, Any] = {}
+    for name, value in fields.items():
+        if name == "title":
+            if not isinstance(value, str) or not value.strip():
+                raise GraphError("Frame: el título no puede estar vacío")
+            clean[name] = value.strip()
+        elif name == "color":
+            if not isinstance(value, str) or not _COLOR_RE.match(value):
+                raise GraphError(f"Frame: color inválido {value!r} (se espera #RRGGBB)")
+            clean[name] = value.upper()
+        elif name in ("x", "y"):
+            clean[name] = _finite(value, name)
+        elif name == "width":
+            clean[name] = max(FRAME_MIN_WIDTH, _finite(value, name))
+        elif name == "height":
+            clean[name] = max(FRAME_MIN_HEIGHT, _finite(value, name))
+        else:
+            raise GraphError(f"Frame: campo desconocido '{name}'")
+    return clean
+
+
+@dataclass
+class Frame:
+    """Rectángulo con título que agrupa nodos visualmente. No afecta al procesamiento."""
+
+    id: str
+    title: str = "Frame"
+    color: str = FRAME_DEFAULT_COLOR
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 300.0
+    height: float = 200.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "color": self.color,
+            "x": self.x,
+            "y": self.y,
+            "width": self.width,
+            "height": self.height,
+        }
+
+    def copy(self) -> Frame:
+        return Frame(**self.to_dict())
+
+
 class GraphEventKind(Enum):
     NODE_ADDED = auto()
     NODE_REMOVED = auto()
@@ -76,6 +140,9 @@ class GraphEventKind(Enum):
     INPUT_VALUE_CHANGED = auto()
     LINK_ADDED = auto()
     LINK_REMOVED = auto()
+    FRAME_ADDED = auto()
+    FRAME_REMOVED = auto()
+    FRAME_CHANGED = auto()
     CLEARED = auto()
 
 
@@ -85,6 +152,7 @@ class GraphEvent:
     node_id: str | None = None
     link: Link | None = None
     name: str | None = None
+    frame_id: str | None = None
 
 
 GraphListener = Callable[[GraphEvent], None]
@@ -101,6 +169,7 @@ class Graph:
         self.registry = registry
         self._nodes: dict[str, NodeInstance] = {}
         self._links: dict[str, Link] = {}
+        self._frames: dict[str, Frame] = {}
         self._listeners: list[GraphListener] = []
 
     # -- suscripción -------------------------------------------------------------------
@@ -125,6 +194,16 @@ class Graph:
     @property
     def links(self) -> Mapping[str, Link]:
         return MappingProxyType(self._links)
+
+    @property
+    def frames(self) -> Mapping[str, Frame]:
+        return MappingProxyType(self._frames)
+
+    def frame(self, frame_id: str) -> Frame:
+        try:
+            return self._frames[frame_id]
+        except KeyError:
+            raise GraphError(f"No existe el frame '{frame_id}'") from None
 
     def node(self, node_id: str) -> NodeInstance:
         try:
@@ -284,9 +363,37 @@ class Graph:
         self._emit(GraphEvent(GraphEventKind.LINK_REMOVED, node_id=link.dst_node, link=link))
         return link
 
+    # -- frames ------------------------------------------------------------------------
+
+    def add_frame(self, frame: Frame) -> Frame:
+        """Añade (una copia validada de) ``frame``."""
+        if frame.id in self._frames:
+            raise GraphError(f"Ya existe un frame con id '{frame.id}'")
+        fields = normalize_frame_fields({k: v for k, v in frame.to_dict().items() if k != "id"})
+        stored = Frame(frame.id, **fields)
+        self._frames[stored.id] = stored
+        self._emit(GraphEvent(GraphEventKind.FRAME_ADDED, frame_id=stored.id))
+        return stored
+
+    def remove_frame(self, frame_id: str) -> Frame:
+        frame = self.frame(frame_id)
+        del self._frames[frame_id]
+        self._emit(GraphEvent(GraphEventKind.FRAME_REMOVED, frame_id=frame_id))
+        return frame
+
+    def update_frame(self, frame_id: str, **fields: Any) -> None:
+        frame = self.frame(frame_id)
+        clean = normalize_frame_fields(fields)
+        changed = {k: v for k, v in clean.items() if getattr(frame, k) != v}
+        if changed:
+            for name, value in changed.items():
+                setattr(frame, name, value)
+            self._emit(GraphEvent(GraphEventKind.FRAME_CHANGED, frame_id=frame_id))
+
     # -- general -----------------------------------------------------------------------
 
     def clear(self) -> None:
         self._links.clear()
         self._nodes.clear()
+        self._frames.clear()
         self._emit(GraphEvent(GraphEventKind.CLEARED))

@@ -5,10 +5,14 @@ from __future__ import annotations
 import html
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QColorDialog,
     QFormLayout,
     QGroupBox,
     QLabel,
+    QLineEdit,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -27,6 +31,7 @@ class PropertiesPanel(QWidget):
         self.graph = graph
         self.controller = controller
         self.node_id: str | None = None
+        self.frame_id: str | None = None
         self._param_widgets: dict[str, ValueWidget] = {}
         self._input_widgets: dict[str, ValueWidget] = {}
         self._input_labels: dict[str, QLabel] = {}
@@ -44,7 +49,71 @@ class PropertiesPanel(QWidget):
 
     # -- contenido ---------------------------------------------------------------------
 
+    def show_frame(self, frame_id: str) -> None:
+        """Propiedades de un frame: título, color y geometría."""
+        self.node_id = None
+        self.frame_id = frame_id
+        self._param_widgets.clear()
+        self._input_widgets.clear()
+        self._input_labels.clear()
+        self._status_label = None
+        frame = self.graph.frame(frame_id)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        self._scroll.setWidget(content)
+
+        title = QLabel("Frame")
+        title.setStyleSheet(
+            f"font-size: 11pt; font-weight: bold; padding-left: 6px;"
+            f"border-left: 4px solid {frame.color};"
+        )
+        layout.addWidget(title)
+        hint = QLabel(
+            "Agrupa nodos visualmente. Arrastra su título para moverlo junto con los nodos "
+            "que contiene y su esquina inferior derecha para redimensionarlo."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {Colors.TEXT_DIM};")
+        layout.addWidget(hint)
+
+        box = QGroupBox("Frame")
+        form = QFormLayout(box)
+        self._frame_title = QLineEdit(frame.title)
+        self._frame_title.editingFinished.connect(
+            lambda: self.controller.edit_frame(frame_id, title=self._frame_title.text())
+        )
+        form.addRow("Título", self._frame_title)
+        self._frame_color = QPushButton()
+        self._frame_color.clicked.connect(lambda: self._pick_frame_color(frame_id))
+        form.addRow("Color", self._frame_color)
+        self._frame_info = QLabel()
+        form.addRow("Geometría", self._frame_info)
+        layout.addWidget(box)
+        layout.addStretch(1)
+        self._refresh_frame_widgets(frame_id)
+
+    def _refresh_frame_widgets(self, frame_id: str) -> None:
+        frame = self.graph.frame(frame_id)
+        if self._frame_title.text() != frame.title and not self._frame_title.hasFocus():
+            self._frame_title.setText(frame.title)
+        self._frame_color.setText(frame.color)
+        self._frame_color.setStyleSheet(
+            f"QPushButton {{ background: {frame.color}; border: 1px solid #111; color: #FFF; }}"
+        )
+        self._frame_info.setText(
+            f"{frame.width:.0f} × {frame.height:.0f} en ({frame.x:.0f}, {frame.y:.0f})"
+        )
+
+    def _pick_frame_color(self, frame_id: str) -> None:
+        color = QColorDialog.getColor(QColor(self.graph.frame(frame_id).color), self)
+        if color.isValid():
+            self.controller.edit_frame(frame_id, color=color.name())
+
     def show_selection(self, node_ids: list[str]) -> None:
+        self.frame_id = None
         self.node_id = node_ids[0] if len(node_ids) == 1 else None
         self._param_widgets.clear()
         self._input_widgets.clear()
@@ -179,6 +248,13 @@ class PropertiesPanel(QWidget):
     def _on_graph_event(self, event: GraphEvent) -> None:
         if event.kind is GraphEventKind.CLEARED:
             self.show_selection([])
+            return
+        if event.kind in (GraphEventKind.FRAME_CHANGED, GraphEventKind.FRAME_REMOVED):
+            if self.frame_id is not None and event.frame_id == self.frame_id:
+                if event.kind is GraphEventKind.FRAME_REMOVED:
+                    self.show_selection([])
+                else:
+                    self._refresh_frame_widgets(self.frame_id)
             return
         if self.node_id is None or event.node_id != self.node_id:
             return

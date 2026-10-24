@@ -263,7 +263,12 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self) -> None:
         # La escena emite selectionChanged también mientras se destruye.
         if shiboken6.isValid(self.scene) and shiboken6.isValid(self.properties):
-            self.properties.show_selection(self.scene.selected_node_ids())
+            nodes = self.scene.selected_node_ids()
+            frames = self.scene.selected_frame_ids()
+            if len(frames) == 1 and not nodes:
+                self.properties.show_frame(frames[0])
+            else:
+                self.properties.show_selection(nodes)
             self._update_viewer()
 
     def _set_auto_run(self, enabled: bool) -> None:
@@ -426,6 +431,8 @@ class MainWindow(QMainWindow):
             self.graph.add_node_from_dict(node.to_dict())
         for link in loaded.links.values():
             self.graph.add_link_object(link)
+        for frame in loaded.frames.values():
+            self.graph.add_frame(frame)
 
         self.project, self.project_path = project, Path(path)
         self.last_result = None

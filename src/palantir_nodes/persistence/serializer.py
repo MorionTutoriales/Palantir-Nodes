@@ -13,7 +13,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from palantir_nodes.core.errors import PalantirError
-from palantir_nodes.core.graph import Graph, Link
+from palantir_nodes.core.graph import (
+    FRAME_DEFAULT_COLOR,
+    Frame,
+    Graph,
+    Link,
+    normalize_frame_fields,
+)
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.persistence.format import (
     CURRENT_VERSION,
@@ -56,6 +62,7 @@ def dump(graph: Graph, project: ProjectData, app_version: str = "") -> dict[str,
         },
         "nodes": nodes,
         "links": links,
+        "frames": [frame.to_dict() for frame in graph.frames.values()],
     }
 
 
@@ -98,7 +105,7 @@ def load(data: dict[str, Any], registry: NodeRegistry) -> tuple[Graph, ProjectDa
     data = migrate(data)
     problems = [
         f"'{key}' debe ser una lista"
-        for key in ("nodes", "links")
+        for key in ("nodes", "links", "frames")
         if not isinstance(data.get(key, []), list)
     ]
     if problems:
@@ -186,4 +193,36 @@ def load(data: dict[str, Any], registry: NodeRegistry) -> tuple[Graph, ProjectDa
             graph.add_link_object(link)
         except PalantirError as exc:
             warnings.append(f"Conexión #{index} omitida: {exc}")
+
+    # 'frames' es opcional: los proyectos anteriores a los frames simplemente no lo tienen.
+    for index, raw in enumerate(data.get("frames", []), start=1):
+        _load_frame(graph, raw, index, warnings)
     return graph, project
+
+
+_FRAME_NUMBERS = ("x", "y", "width", "height")
+
+
+def _load_frame(graph: Graph, raw: Any, index: int, warnings: list[str]) -> None:
+    where = f"Frame #{index}"
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not raw["id"]:
+        warnings.append(f"{where}: formato inválido (se omite)")
+        return
+    numbers = {name: _number(raw.get(name)) for name in _FRAME_NUMBERS}
+    if any(value is None for value in numbers.values()):
+        warnings.append(f"{where}: posición o tamaño inválidos (se omite)")
+        return
+    fields: dict[str, Any] = dict(numbers)
+    for name, default in (("title", "Frame"), ("color", FRAME_DEFAULT_COLOR)):
+        if name not in raw:  # opcional: se usa el valor por defecto sin avisar
+            fields[name] = default
+            continue
+        try:
+            fields[name] = normalize_frame_fields({name: raw.get(name)})[name]
+        except PalantirError:
+            warnings.append(f"{where}: {name} inválido; se usa '{default}'")
+            fields[name] = default
+    try:
+        graph.add_frame(Frame(raw["id"], **fields))
+    except PalantirError as exc:
+        warnings.append(f"{where} omitido: {exc}")

@@ -16,11 +16,12 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
 )
-from PySide6.QtWidgets import QGraphicsView, QMenu
+from PySide6.QtWidgets import QColorDialog, QGraphicsView, QInputDialog, QMenu
 
 from palantir_nodes.nodes.categories import get_category
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.ui.editor.controller import EditorController
+from palantir_nodes.ui.editor.frame_item import FrameItem
 from palantir_nodes.ui.editor.link_item import LinkItem
 from palantir_nodes.ui.editor.node_item import NodeItem
 from palantir_nodes.ui.editor.scene import NodeScene
@@ -89,12 +90,20 @@ class NodeView(QGraphicsView):
         self.action_select_all = self._action("Seleccionar todo", ["A", "Ctrl+A"], self.select_all)
         self.action_deselect = self._action("Deseleccionar", ["Alt+A"], self.scene().clearSelection)
         self.action_frame = self._action("Encuadrar todo", ["Home"], self.frame_all)
+        self.action_frame_nodes = self._action(
+            "Enmarcar selección (frame)", ["Ctrl+J"], self.controller.frame_selection
+        )
+        self.action_add_frame = self._action("Añadir frame vacío", [], self._add_empty_frame)
+        self.node_scene.frame_rename_requested.connect(self.rename_frame)
 
     def editor_actions(self) -> list[QAction | None]:
         """Acciones del editor para el menú Editar (``None`` = separador)."""
         return [
             self.action_add,
             self.action_search,
+            None,
+            self.action_frame_nodes,
+            self.action_add_frame,
             None,
             self.action_copy,
             self.action_paste,
@@ -265,8 +274,26 @@ class NodeView(QGraphicsView):
             menu.addAction(self.action_copy)
             menu.addAction(self.action_duplicate)
             menu.addSeparator()
+            menu.addAction(self.action_frame_nodes)
+            menu.addSeparator()
             menu.addAction(self.action_delete)
             menu.exec(event.globalPos())
+        elif isinstance(item, FrameItem):
+            if not item.isSelected():
+                self.scene().clearSelection()
+                item.setSelected(True)
+            menu = QMenu(self)
+            rename = menu.addAction("Renombrar…")
+            recolor = menu.addAction("Cambiar color…")
+            menu.addSeparator()
+            remove = menu.addAction("Eliminar frame (los nodos se conservan)")
+            chosen = menu.exec(event.globalPos())
+            if chosen is rename:
+                self.rename_frame(item.frame_id)
+            elif chosen is recolor:
+                self.recolor_frame(item.frame_id)
+            elif chosen is remove:
+                self.controller.remove_items([], [], [item.frame_id])
         elif isinstance(item, LinkItem):
             menu = QMenu(self)
             remove = menu.addAction("Eliminar conexión")
@@ -279,6 +306,7 @@ class NodeView(QGraphicsView):
         menu = QMenu(self)
         search = menu.addAction("Buscar…")
         search.setShortcut(QKeySequence("Ctrl+F"))
+        new_frame = menu.addAction("Añadir frame aquí")
         menu.addSeparator()
         for category, members in self.registry.by_category().items():
             sub = menu.addMenu(category)
@@ -291,8 +319,30 @@ class NodeView(QGraphicsView):
         chosen = menu.exec(global_pos)
         if chosen is search:
             self.show_search(global_pos, scene_pos)
+        elif chosen is new_frame:
+            self.controller.add_frame(scene_pos.x(), scene_pos.y())
         elif chosen is not None and chosen.data():
             self.controller.add_node(chosen.data(), scene_pos)
+
+    def _add_empty_frame(self) -> None:
+        _, scene_pos = self._cursor_or_center()
+        self.controller.add_frame(scene_pos.x(), scene_pos.y())
+
+    def rename_frame(self, frame_id: str) -> None:
+        frame = self.node_scene.graph.frames.get(frame_id)
+        if frame is None:
+            return
+        text, ok = QInputDialog.getText(self, "Renombrar frame", "Título:", text=frame.title)
+        if ok and text.strip():
+            self.controller.edit_frame(frame_id, title=text)
+
+    def recolor_frame(self, frame_id: str) -> None:
+        frame = self.node_scene.graph.frames.get(frame_id)
+        if frame is None:
+            return
+        color = QColorDialog.getColor(QColor(frame.color), self, "Color del frame")
+        if color.isValid():
+            self.controller.edit_frame(frame_id, color=color.name())
 
     def show_search(self, global_pos: QPoint, scene_pos: QPointF) -> None:
         popup = NodeSearchPopup(self.registry, self)
