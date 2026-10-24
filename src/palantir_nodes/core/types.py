@@ -45,21 +45,25 @@ class Conversion:
 
     description: str
     convert: Callable[[Any], Any]
+    # Expresión Python equivalente a ``convert``; ``{}`` se sustituye por el valor.
+    template: str = ""
 
 
 # Únicas conversiones implícitas permitidas: (origen, destino) -> conversión.
 IMPLICIT_CONVERSIONS: dict[tuple[SocketType, SocketType], Conversion] = {
-    (SocketType.INTEGER, SocketType.FLOAT): Conversion("Integer → Float", float),
+    (SocketType.INTEGER, SocketType.FLOAT): Conversion("Integer → Float", float, "float({})"),
     (SocketType.FLOAT, SocketType.INTEGER): Conversion(
-        "Float → Integer (redondeo)", lambda v: int(round(v))
+        "Float → Integer (redondeo)", lambda v: int(round(v)), "int(round({}))"
     ),
-    (SocketType.BOOLEAN, SocketType.INTEGER): Conversion("Boolean → Integer", int),
-    (SocketType.BOOLEAN, SocketType.FLOAT): Conversion("Boolean → Float", float),
+    (SocketType.BOOLEAN, SocketType.INTEGER): Conversion("Boolean → Integer", int, "int({})"),
+    (SocketType.BOOLEAN, SocketType.FLOAT): Conversion("Boolean → Float", float, "float({})"),
     (SocketType.COLOR, SocketType.VECTOR3): Conversion(
-        "Color → Vector3", lambda v: tuple(float(c) for c in v)
+        "Color → Vector3", lambda v: tuple(float(c) for c in v), "tuple(float(c) for c in {})"
     ),
     (SocketType.VECTOR3, SocketType.COLOR): Conversion(
-        "Vector3 → Color", lambda v: tuple(max(0, min(255, int(round(c)))) for c in v)
+        "Vector3 → Color",
+        lambda v: tuple(max(0, min(255, int(round(c)))) for c in v),
+        "tuple(max(0, min(255, int(round(c)))) for c in {})",
     ),
 }
 

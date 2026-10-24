@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import COMPOSITE
 from palantir_nodes.nodes.library._cv import as_bgr, as_gray, image_in, match
 from palantir_nodes.nodes.registry import register_node
@@ -56,6 +56,26 @@ class BlendImages(NodeDefinition):
                 out = af * (1 - f) + (255.0 - (255.0 - af) * (255.0 - bf) / 255.0) * f
         return {"image": np.clip(np.rint(out), 0, 255).astype(np.uint8)}
 
+    def generate_code(self, gen, inputs, params):
+        gen.helper("match")
+        a, b, f, af, bf, o = (
+            gen.new_var(n) for n in ("a", "b", "factor", "a_float", "b_float", "blended")
+        )
+        expr = {
+            "mix": f"{af} * (1 - {f}) + {bf} * {f}",
+            "add": f"{af} + {bf} * {f}",
+            "multiply": f"{af} * (1 - {f}) + ({af} * {bf} / 255.0) * {f}",
+            "screen": f"{af} * (1 - {f}) + (255.0 - (255.0 - {af}) * (255.0 - {bf}) / 255.0) * {f}",
+        }[params["mode"]]
+        lines = [
+            f"{a}, {b} = match({inputs['image_a']}, {inputs['image_b']})",
+            f"{f} = float(np.clip({inputs['factor']}, 0.0, 1.0))",
+            f"{af} = {a}.astype(np.float32)",
+            f"{bf} = {b}.astype(np.float32)",
+            f"{o} = np.clip(np.rint({expr}), 0, 255).astype(np.uint8)",
+        ]
+        return CodeFragment(lines, {"image": o})
+
 
 @register_node
 class AddWeighted(NodeDefinition):
@@ -76,6 +96,16 @@ class AddWeighted(NodeDefinition):
         out = cv2.addWeighted(a, inputs["alpha"], b, inputs["beta"], inputs["gamma"])
         return {"image": out}
 
+    def generate_code(self, gen, inputs, params):
+        gen.helper("match")
+        a, b, o = gen.new_var("a"), gen.new_var("b"), gen.new_var("weighted")
+        lines = [
+            f"{a}, {b} = match({inputs['image_a']}, {inputs['image_b']})",
+            f"{o} = cv2.addWeighted({a}, {inputs['alpha']}, {b}, {inputs['beta']}, "
+            f"{inputs['gamma']})",
+        ]
+        return CodeFragment(lines, {"image": o})
+
 
 @register_node
 class BitwiseAnd(NodeDefinition):
@@ -89,6 +119,15 @@ class BitwiseAnd(NodeDefinition):
     def process(self, ctx, inputs, params):
         a, b = _pair(inputs)
         return {"image": cv2.bitwise_and(a, b)}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("match")
+        a, b, o = gen.new_var("a"), gen.new_var("b"), gen.new_var("anded")
+        lines = [
+            f"{a}, {b} = match({inputs['image_a']}, {inputs['image_b']})",
+            f"{o} = cv2.bitwise_and({a}, {b})",
+        ]
+        return CodeFragment(lines, {"image": o})
 
 
 @register_node
@@ -104,6 +143,15 @@ class BitwiseOr(NodeDefinition):
         a, b = _pair(inputs)
         return {"image": cv2.bitwise_or(a, b)}
 
+    def generate_code(self, gen, inputs, params):
+        gen.helper("match")
+        a, b, o = gen.new_var("a"), gen.new_var("b"), gen.new_var("ored")
+        lines = [
+            f"{a}, {b} = match({inputs['image_a']}, {inputs['image_b']})",
+            f"{o} = cv2.bitwise_or({a}, {b})",
+        ]
+        return CodeFragment(lines, {"image": o})
+
 
 @register_node
 class BitwiseNot(NodeDefinition):
@@ -116,6 +164,10 @@ class BitwiseNot(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"image": cv2.bitwise_not(image_in(inputs["image"]))}
+
+    def generate_code(self, gen, inputs, params):
+        o = gen.new_var("inverted")
+        return CodeFragment([f"{o} = cv2.bitwise_not({inputs['image']})"], {"image": o})
 
 
 @register_node
@@ -135,6 +187,21 @@ class MaskImage(NodeDefinition):
             mask = cv2.resize(mask, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
         keep = (mask == 0) if params["invert"] else (mask > 0)
         return {"image": cv2.bitwise_and(img, img, mask=keep.astype(np.uint8) * 255)}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("as_gray")
+        img = inputs["image"]
+        m, keep, o = gen.new_var("mask"), gen.new_var("keep"), gen.new_var("masked")
+        cond = f"({m} == 0)" if params["invert"] else f"({m} > 0)"
+        lines = [
+            f"{m} = as_gray({inputs['mask']})",
+            f"if {m}.shape[:2] != {img}.shape[:2]:",
+            f"    {m} = cv2.resize({m}, ({img}.shape[1], {img}.shape[0]), "
+            "interpolation=cv2.INTER_NEAREST)",
+            f"{keep} = {cond}",
+            f"{o} = cv2.bitwise_and({img}, {img}, mask={keep}.astype(np.uint8) * 255)",
+        ]
+        return CodeFragment(lines, {"image": o})
 
 
 @register_node
@@ -160,6 +227,19 @@ class MergeChannels(NodeDefinition):
             channels.append(channel)
         return {"image": cv2.merge(channels)}
 
+    def generate_code(self, gen, inputs, params):
+        gen.helper("as_gray")
+        b, g, r, o = (gen.new_var(n) for n in ("blue", "green", "red", "merged"))
+        lines = [f"{b} = as_gray({inputs['blue']})"]
+        for var, name in ((g, "green"), (r, "red")):
+            lines += [
+                f"{var} = as_gray({inputs[name]})",
+                f"if {var}.shape != {b}.shape:",
+                f"    {var} = cv2.resize({var}, ({b}.shape[1], {b}.shape[0]))",
+            ]
+        lines.append(f"{o} = cv2.merge([{b}, {g}, {r}])")
+        return CodeFragment(lines, {"image": o})
+
 
 @register_node
 class SplitChannels(NodeDefinition):
@@ -177,3 +257,9 @@ class SplitChannels(NodeDefinition):
     def process(self, ctx, inputs, params):
         blue, green, red = cv2.split(as_bgr(image_in(inputs["image"])))
         return {"blue": blue, "green": green, "red": red}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("as_bgr")
+        b, g, r = gen.new_var("blue"), gen.new_var("green"), gen.new_var("red")
+        line = f"{b}, {g}, {r} = cv2.split(as_bgr({inputs['image']}))"
+        return CodeFragment([line], {"blue": b, "green": g, "red": r})

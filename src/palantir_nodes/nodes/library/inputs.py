@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import INPUT
 from palantir_nodes.nodes.library._cv import to_uint8
 from palantir_nodes.nodes.registry import register_node
@@ -75,6 +75,21 @@ class LoadImage(NodeDefinition):
         img = read_image(params["path"], params["mode"])
         return {"image": img, "width": img.shape[1], "height": img.shape[0]}
 
+    def generate_code(self, gen, inputs, params):
+        gen.helper("read_image")
+        img = gen.new_var("image")
+        lines = [f"{img} = read_image({params['path']!r}, {params['mode']!r})"]
+        outputs = {"image": img}
+        if gen.wanted("width"):
+            outputs["width"] = f"{img}.shape[1]"
+        if gen.wanted("height"):
+            outputs["height"] = f"{img}.shape[0]"
+        return CodeFragment(lines, outputs)
+
+    @classmethod
+    def export_problems(cls, params):
+        return [] if params["path"] else ["no se ha seleccionado ningún archivo de imagen"]
+
 
 @register_node
 class Number(NodeDefinition):
@@ -87,6 +102,10 @@ class Number(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
+
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("number")
+        return CodeFragment([f"{v} = {params['value']!r}"], {"value": v})
 
 
 @register_node
@@ -101,6 +120,10 @@ class Integer(NodeDefinition):
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
 
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("integer")
+        return CodeFragment([f"{v} = {params['value']!r}"], {"value": v})
+
 
 @register_node
 class BooleanValue(NodeDefinition):
@@ -114,6 +137,10 @@ class BooleanValue(NodeDefinition):
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
 
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("flag")
+        return CodeFragment([f"{v} = {params['value']!r}"], {"value": v})
+
 
 @register_node
 class ColorValue(NodeDefinition):
@@ -126,3 +153,7 @@ class ColorValue(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"color": params["color"]}
+
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("color_rgb")
+        return CodeFragment([f"{v} = {tuple(params['color'])!r}"], {"color": v})

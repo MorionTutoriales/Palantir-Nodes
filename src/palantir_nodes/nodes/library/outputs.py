@@ -5,7 +5,7 @@ import os
 import cv2
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import OUTPUT
 from palantir_nodes.nodes.library._cv import image_in
 from palantir_nodes.nodes.registry import register_node
@@ -23,6 +23,12 @@ class ImageViewer(NodeDefinition):
     def process(self, ctx, inputs, params):
         image_in(inputs["image"])  # valida; el visor lee la entrada desde el resultado
         return {}
+
+    def generate_code(self, gen, inputs, params):
+        gen.uses_display = True
+        title = gen.window_name("Image Viewer")
+        lines = ["if show:", f"    cv2.imshow({title!r}, {inputs['image']})"]
+        return CodeFragment(lines, {})
 
 
 @register_node
@@ -65,3 +71,15 @@ class SaveImage(NodeDefinition):
         except OSError as exc:
             raise ValueError(f"No se pudo escribir '{path}': {exc.strerror or exc}") from exc
         return {}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("save_image")
+        return CodeFragment([f"save_image({inputs['image']}, {params['path']!r})"], {})
+
+    @classmethod
+    def export_problems(cls, params):
+        if not params["path"]:
+            return ["no se ha indicado el archivo de destino"]
+        if not os.path.splitext(params["path"])[1]:
+            return ["el archivo de destino necesita extensión (.png, .jpg…)"]
+        return []

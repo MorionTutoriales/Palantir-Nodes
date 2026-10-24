@@ -5,10 +5,19 @@ from __future__ import annotations
 import shiboken6
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoStack
-from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QMessageBox, QToolBar
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QFileDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QToolBar,
+)
 
 from palantir_nodes import __version__
+from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent
+from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
@@ -25,7 +34,6 @@ _PENDING = {
     "save": ("Guardar", "Ctrl+S", "Guardado/carga JSON: pendiente"),
     "save_as": ("Guardar como…", "Ctrl+Shift+S", "Guardado/carga JSON: pendiente"),
     "stop": ("Detener", "Shift+F5", "Ejecución en tiempo real: Fase 5"),
-    "export": ("Exportar Python…", "Ctrl+E", "Exportación a Python: Fase 4"),
     "prefs": ("Preferencias…", "", "Preferencias: pendiente"),
 }
 
@@ -95,6 +103,10 @@ class MainWindow(QMainWindow):
         self.action_run.setShortcut(QKeySequence("F5"))
         self.action_run.setToolTip("Ejecutar el grafo (F5). Save Image solo escribe aquí.")
         self.action_run.triggered.connect(lambda: self.runner.run(side_effects=True))
+        self.action_export = QAction("Exportar Python…", self)
+        self.action_export.setShortcut(QKeySequence("Ctrl+E"))
+        self.action_export.setToolTip("Exportar el grafo como un script Python independiente")
+        self.action_export.triggered.connect(self.export_python)
         self.action_auto = QAction("Auto", self)
         self.action_auto.setCheckable(True)
         self.action_auto.setChecked(True)
@@ -130,7 +142,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(p["save"])
         file_menu.addAction(p["save_as"])
         file_menu.addSeparator()
-        file_menu.addAction(p["export"])
+        file_menu.addAction(self.action_export)
         file_menu.addSeparator()
         file_menu.addAction(self.action_quit)
 
@@ -172,7 +184,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.action_auto)
         toolbar.addAction(p["stop"])
         toolbar.addSeparator()
-        toolbar.addAction(p["export"])
+        toolbar.addAction(self.action_export)
         toolbar.addSeparator()
         toolbar.addAction(p["prefs"])
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
@@ -274,6 +286,27 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Cancel,
         )
         return answer == QMessageBox.StandardButton.Discard
+
+    def export_python(self) -> None:
+        try:
+            code = CodeGenerator(ExecutionPlan.from_graph(self.graph), __version__).generate()
+        except ExportError as exc:
+            self.scene.select_nodes([p.node_id for p in exc.problems if p.node_id])
+            problems = "\n".join(f"• {p.message}" for p in exc.problems)
+            QMessageBox.warning(self, APP_NAME, f"No se puede exportar el grafo:\n\n{problems}")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Exportar a Python", "grafo.py", "Python (*.py)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(code)
+        except OSError as exc:
+            QMessageBox.critical(self, APP_NAME, f"No se pudo escribir el archivo:\n{exc}")
+            return
+        self.show_message(f"Exportado a {path}", 8000)
 
     def new_project(self) -> None:
         if self._confirm_discard():

@@ -32,6 +32,7 @@ py -3.13 -m venv .venv
 | `nodes/` | Contrato `NodeDefinition`, especificaciones, registro, biblioteca | No |
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
 | `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
+| `codegen/` | Generador de scripts Python y helpers compartidos con el motor | No |
 | `ui/properties/` | Panel de propiedades y widgets por tipo de parámetro | Sí |
 | `ui/viewer/` | Visor de imágenes con zoom y desplazamiento | Sí |
 
@@ -42,7 +43,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 3 (editor, motor y procesamiento de imágenes)
+## Estado: Fases 1 a 4 (editor, motor, procesamiento y exportación a Python)
 
 ### Implementado
 
@@ -67,9 +68,16 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
 - **Ejecución:** `F5` ejecuta; **Auto** (activado por defecto) re-ejecuta al cambiar el grafo.
   Save Image solo escribe en disco con `F5`, nunca en la ejecución automática.
 
+- **Exportar a Python** (`Ctrl+E`): genera un `.py` independiente (solo OpenCV y NumPy) a partir
+  del mismo plan que usa el motor; cada nodo aporta su código con `generate_code`. El script
+  tiene imports, helpers, `main()` y `if __name__ == "__main__":`, nombres de variable únicos,
+  parámetros conservados, y solo incluye lo que alimenta una salida. Si falla, el error indica
+  el nodo (`Error en el nodo 'Load Image': ...`). `--no-show` evita abrir ventanas. Al exportar
+  se avisa de problemas (entrada sin conectar, archivo sin elegir) y se seleccionan los nodos.
+  Las rutas se escriben tal cual están en el grafo (las relativas lo son al directorio actual).
+
 ### No implementado todavía
 
-- **Exportar a Python** (Fase 4): los nodos aún no tienen `generate_code`.
 - **Video, webcam y tiempo real** (Fase 5): Load Video, Webcam, Video Viewer, Save Video,
   Detener, FPS. El visor solo muestra imágenes estáticas.
 - **Guardar y abrir proyectos JSON**: pendiente.
@@ -92,7 +100,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 | Encuadrar todo | `Inicio` |
 | Cancelar conexión en curso | `Esc` o clic derecho |
 
-### Criterios de aceptación (Fases 1-3)
+### Criterios de aceptación (Fases 1-4)
 
 1. `python -m palantir_nodes` abre la ventana sin errores.
 2. Se puede construir Load Image → Grayscale → Threshold → Find Contours → Draw Contours →
@@ -101,4 +109,6 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
    detiene el resto del grafo.
 4. Las conexiones inválidas se rechazan con su motivo; deshacer/rehacer funcionan.
 5. La interfaz sigue respondiendo mientras se procesa.
-6. `pytest` pasa (150 pruebas: modelo, validación, motor, nodos, comandos y UI real).
+6. Exportar a Python un grafo y ejecutar el script produce las mismas imágenes que el motor
+   (las pruebas lo comprueban nodo por nodo y con cadenas de matemáticas y conversiones).
+7. `pytest` pasa (203 pruebas: modelo, validación, motor, nodos, exportación y UI real).

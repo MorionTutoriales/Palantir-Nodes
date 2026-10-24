@@ -3,7 +3,7 @@
 import operator
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import MATH
 from palantir_nodes.nodes.registry import register_node
 from palantir_nodes.nodes.specs import InputSpec, OutputSpec, ParamKind, ParamSpec
@@ -31,6 +31,11 @@ class Add(NodeDefinition):
     def process(self, ctx, inputs, params):
         return {"result": inputs["a"] + inputs["b"]}
 
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("total")
+        a, b = inputs["a"], inputs["b"]
+        return CodeFragment([f"{r} = {a} + {b}"], {"result": r})
+
 
 @register_node
 class Subtract(NodeDefinition):
@@ -44,6 +49,11 @@ class Subtract(NodeDefinition):
     def process(self, ctx, inputs, params):
         return {"result": inputs["a"] - inputs["b"]}
 
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("difference")
+        a, b = inputs["a"], inputs["b"]
+        return CodeFragment([f"{r} = {a} - {b}"], {"result": r})
+
 
 @register_node
 class Multiply(NodeDefinition):
@@ -56,6 +66,11 @@ class Multiply(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"result": inputs["a"] * inputs["b"]}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("product")
+        a, b = inputs["a"], inputs["b"]
+        return CodeFragment([f"{r} = {a} * {b}"], {"result": r})
 
 
 @register_node
@@ -71,6 +86,16 @@ class Divide(NodeDefinition):
         if inputs["b"] == 0:
             raise ValueError("División entre cero")
         return {"result": inputs["a"] / inputs["b"]}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("quotient")
+        a, b = inputs["a"], inputs["b"]
+        lines = [
+            f"if {b} == 0:",
+            '    raise ValueError("División entre cero")',
+            f"{r} = {a} / {b}",
+        ]
+        return CodeFragment(lines, {"result": r})
 
 
 @register_node
@@ -91,6 +116,16 @@ class Clamp(NodeDefinition):
         if low > high:
             raise ValueError(f"El mínimo ({low}) es mayor que el máximo ({high})")
         return {"result": min(max(inputs["value"], low), high)}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("clamped")
+        v, lo, hi = inputs["value"], inputs["min"], inputs["max"]
+        lines = [
+            f"if {lo} > {hi}:",
+            f'    raise ValueError(f"El mínimo ({{{lo}}}) es mayor que el máximo ({{{hi}}})")',
+            f"{r} = min(max({v}, {lo}), {hi})",
+        ]
+        return CodeFragment(lines, {"result": r})
 
 
 @register_node
@@ -118,6 +153,21 @@ class MapRange(NodeDefinition):
             t = min(max(t, 0.0), 1.0)
         return {"result": inputs["to_min"] + t * (inputs["to_max"] - inputs["to_min"])}
 
+    def generate_code(self, gen, inputs, params):
+        r, span, t = gen.new_var("mapped"), gen.new_var("span"), gen.new_var("fraction")
+        v, fmin, fmax = inputs["value"], inputs["from_min"], inputs["from_max"]
+        tmin, tmax = inputs["to_min"], inputs["to_max"]
+        lines = [
+            f"{span} = {fmax} - {fmin}",
+            f"if {span} == 0:",
+            '    raise ValueError("El rango de origen tiene longitud cero")',
+            f"{t} = ({v} - {fmin}) / {span}",
+        ]
+        if params["clamp"]:
+            lines.append(f"{t} = min(max({t}, 0.0), 1.0)")
+        lines.append(f"{r} = {tmin} + {t} * ({tmax} - {tmin})")
+        return CodeFragment(lines, {"result": r})
+
 
 @register_node
 class Minimum(NodeDefinition):
@@ -131,6 +181,11 @@ class Minimum(NodeDefinition):
     def process(self, ctx, inputs, params):
         return {"result": min(inputs["a"], inputs["b"])}
 
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("minimum")
+        a, b = inputs["a"], inputs["b"]
+        return CodeFragment([f"{r} = min({a}, {b})"], {"result": r})
+
 
 @register_node
 class Maximum(NodeDefinition):
@@ -143,6 +198,11 @@ class Maximum(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"result": max(inputs["a"], inputs["b"])}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("maximum")
+        a, b = inputs["a"], inputs["b"]
+        return CodeFragment([f"{r} = max({a}, {b})"], {"result": r})
 
 
 _COMPARISONS = {
@@ -182,3 +242,11 @@ class Compare(NodeDefinition):
 
     def process(self, ctx, inputs, params):
         return {"result": bool(_COMPARISONS[params["op"]](inputs["a"], inputs["b"]))}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var("comparison")
+        symbol = {"gt": ">", "ge": ">=", "lt": "<", "le": "<=", "eq": "==", "ne": "!="}[
+            params["op"]
+        ]
+        line = f"{r} = bool({inputs['a']} {symbol} {inputs['b']})"
+        return CodeFragment([line], {"result": r})

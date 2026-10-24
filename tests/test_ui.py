@@ -276,3 +276,29 @@ def test_editing_while_running_does_not_break(qtbot, real_window):
         win.controller.set_param(n, "ksize", ksize)
     qtbot.waitUntil(lambda: win.last_result is not None and not win.runner.busy, timeout=5000)
     assert "__engine__" not in win.last_result.errors
+
+
+def test_export_action_writes_script_and_reports_problems(
+    qtbot, real_window, tmp_path, monkeypatch
+):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    win = real_window
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    win.action_export.trigger()  # grafo vacío
+    assert shown and "nodos de salida" in shown[-1]
+
+    load, gray, view = build_chain(win)
+    win.runner.auto_run = False
+    win.action_export.trigger()  # Load Image sin archivo
+    assert "ningún archivo" in shown[-1]
+    assert win.scene.selected_node_ids() == [load]
+
+    win.controller.set_param(load, "path", win.image_path)
+    target = tmp_path / "exportado.py"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    win.action_export.trigger()
+    code = target.read_text(encoding="utf-8")
+    assert "def main(" in code and "cv2.imshow" in code
+    compile(code, str(target), "exec")

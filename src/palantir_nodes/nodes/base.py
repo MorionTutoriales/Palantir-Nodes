@@ -48,6 +48,11 @@ class NodeDefinition:
     cacheable: ClassVar[bool] = True
 
     @classmethod
+    def export_problems(cls, params: dict[str, Any]) -> list[str]:
+        """Motivos por los que este nodo no puede exportarse con estos parámetros."""
+        return []
+
+    @classmethod
     def cache_key_extra(cls, params: dict[str, Any]) -> Any:
         """Datos externos que invalidan la caché (p. ej. la fecha de un archivo)."""
         return ()
