@@ -127,7 +127,12 @@ class ViewerPanel(QWidget):
         self.stack.setCurrentWidget(self.message)
 
     def show_image(
-        self, img: np.ndarray, source: str, node_ms: float | None, total_ms: float
+        self,
+        img: np.ndarray,
+        source: str,
+        node_ms: float | None,
+        total_ms: float,
+        fps: float | None = None,
     ) -> None:
         self.canvas.set_image(img)
         self.stack.setCurrentWidget(self.canvas)
@@ -137,4 +142,6 @@ class ViewerPanel(QWidget):
         parts = [f"{w}×{h}", f"{channels} canal" + ("es" if channels != 1 else "")]
         parts.append("nodo: caché" if node_ms == 0 else f"nodo: {node_ms:.1f} ms")
         parts.append(f"total: {total_ms:.1f} ms")
+        if fps is not None:
+            parts.append(f"{fps:.1f} FPS")
         self.info.setText(" · ".join(parts))

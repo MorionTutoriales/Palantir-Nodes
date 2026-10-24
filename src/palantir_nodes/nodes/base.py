@@ -19,6 +19,10 @@ class CodeFragment:
 
     lines: list[str] = field(default_factory=list)
     outputs: dict[str, str] = field(default_factory=dict)
+    # Solo en grafos con fuentes de video (script con bucle de fotogramas):
+    pre: list[str] = field(default_factory=list)  # antes del ``try`` (p. ej. ``writer = None``)
+    setup: list[str] = field(default_factory=list)  # una vez, antes del bucle (abrir recursos)
+    cleanup: list[str] = field(default_factory=list)  # en ``finally`` (liberar recursos)
 
 
 class NodeDefinition:
@@ -46,6 +50,11 @@ class NodeDefinition:
     is_source: ClassVar[bool] = False
     # Los nodos con efectos externos (escribir archivos) no se reutilizan desde la caché.
     cacheable: ClassVar[bool] = True
+
+    @classmethod
+    def open_source(cls, params: dict[str, Any]) -> Any:
+        """Abre la fuente de fotogramas del nodo (``read()``, ``release()``, ``fps``)."""
+        raise NotImplementedError(f"'{cls.label}' no es una fuente de fotogramas")
 
     @classmethod
     def export_problems(cls, params: dict[str, Any]) -> list[str]:

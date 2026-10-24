@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,6 +29,23 @@ class ExecContext:
     """
 
     side_effects: bool = True
+    # Modo tiempo real: las fuentes entregan un fotograma por iteración en ``frames``.
+    realtime: bool = False
+    frame_index: int = 0
+    frames: dict[str, Any] = field(default_factory=dict)
+    # Nodo que se está procesando (lo fija el ejecutor antes de cada ``process``).
+    node_id: str = ""
+    # Recursos con ciclo de vida (p. ej. VideoWriter): nodo -> (clave, objeto, cierre).
+    resources: dict[str, tuple[Any, Any, Callable[[], None]]] = field(default_factory=dict)
+
+    def close_resources(self) -> None:
+        """Libera todos los recursos abiertos por los nodos; nunca lanza."""
+        for _key, _obj, closer in list(self.resources.values()):
+            try:
+                closer()
+            except Exception:  # un cierre fallido no debe impedir cerrar el resto
+                pass
+        self.resources.clear()
 
 
 @dataclass
@@ -41,6 +59,7 @@ class ExecutionResult:
     cached: set[str] = field(default_factory=set)
     times_ms: dict[str, float] = field(default_factory=dict)
     total_ms: float = 0.0
+    fps: float | None = None  # solo en tiempo real
 
     @property
     def ok(self) -> bool:
@@ -91,7 +110,7 @@ class Executor:
                 continue
 
             try:
-                inputs, key = self._resolve(plan, node, incoming, result, keys)
+                inputs, key = self._resolve(plan, node, incoming, result, keys, ctx)
             except Exception as exc:
                 result.errors[node_id] = str(exc)
                 continue
@@ -106,6 +125,7 @@ class Executor:
             else:
                 t0 = time.perf_counter()
                 try:
+                    ctx.node_id = node_id
                     outputs = definition().process(ctx, inputs, dict(node.params))
                     missing = [s.name for s in definition.outputs if s.name not in outputs]
                     if missing:
@@ -139,6 +159,7 @@ class Executor:
         incoming: dict[str, tuple[str, str]],
         result: ExecutionResult,
         keys: dict[str, str],
+        ctx: ExecContext,
     ) -> tuple[dict[str, Any], str]:
         inputs: dict[str, Any] = {}
         parts: list[Any] = []
@@ -163,6 +184,8 @@ class Executor:
                 node.definition.type_id,
                 sorted(node.params.items()),
                 node.definition.cache_key_extra(node.params),
+                # Una fuente produce un fotograma distinto en cada iteración.
+                ctx.frame_index if node.definition.is_source else None,
                 parts,
             )
         )

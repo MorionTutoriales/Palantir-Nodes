@@ -11,6 +11,7 @@ import inspect
 import textwrap
 from dataclasses import dataclass
 
+from palantir_nodes.media import capture
 from palantir_nodes.nodes.library import _cv
 from palantir_nodes.nodes.library.inputs import read_image
 
@@ -49,6 +50,10 @@ HELPERS: dict[str, Helper] = {
     "as_bgr": Helper(_source(_cv.as_bgr)),
     "match": Helper(_source(_cv.match), ("as_bgr",)),
     "save_image": Helper(_SAVE_IMAGE),
+    "open_video_capture": Helper(_source(capture.open_video_capture)),
+    "open_camera_capture": Helper(_source(capture.open_camera_capture)),
+    "read_frame": Helper(_source(capture.read_frame)),
+    "open_video_writer": Helper(_source(capture.open_video_writer)),
 }
 
 

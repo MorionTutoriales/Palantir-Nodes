@@ -6,6 +6,11 @@ import cv2
 import numpy as np
 
 from palantir_nodes.core.types import SocketType as T
+from palantir_nodes.media.capture import (
+    CaptureSource,
+    open_camera_capture,
+    open_video_capture,
+)
 from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import INPUT
 from palantir_nodes.nodes.library._cv import to_uint8
@@ -157,3 +162,104 @@ class ColorValue(NodeDefinition):
     def generate_code(self, gen, inputs, params):
         v = gen.new_var("color_rgb")
         return CodeFragment([f"{v} = {tuple(params['color'])!r}"], {"color": v})
+
+
+VIDEO_FILTER = "Video (*.mp4 *.avi *.mov *.mkv *.webm);;Todos (*)"
+
+
+@register_node
+class LoadVideo(NodeDefinition):
+    type_id = "input.load_video"
+    label = "Load Video"
+    category = INPUT
+    description = (
+        "Fuente de fotogramas desde un archivo de video. En tiempo real entrega un "
+        "fotograma por iteración; en modo estático muestra el primero."
+    )
+    is_source = True
+    outputs = (OutputSpec("image", T.IMAGE, "Fotograma"),)
+    params = (
+        ParamSpec("path", ParamKind.FILE_PATH, "", label="Archivo", file_filter=VIDEO_FILTER),
+        ParamSpec("loop", ParamKind.BOOL, False, label="Repetir"),
+    )
+
+    @classmethod
+    def cache_key_extra(cls, params):
+        try:
+            stat = os.stat(params["path"])
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
+    @classmethod
+    def open_source(cls, params):
+        return CaptureSource(open_video_capture(params["path"]), loop=params["loop"], paced=True)
+
+    def process(self, ctx, inputs, params):
+        frame = ctx.frames.get(ctx.node_id)
+        if frame is None:  # modo estático: primer fotograma
+            source = self.open_source({**params, "loop": False})
+            try:
+                frame = source.read()
+            finally:
+                source.release()
+            if frame is None:
+                raise ValueError("El video no tiene fotogramas")
+        return {"image": frame}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("open_video_capture")
+        gen.helper("read_frame")
+        cap, frame = gen.new_var("video"), gen.new_var("frame")
+        return CodeFragment(
+            [
+                f"{frame} = read_frame({cap}, {params['loop']!r})",
+                f"if {frame} is None:",
+                "    break  # fin del video",
+            ],
+            {"image": frame},
+            pre=[f"{cap} = None"],
+            setup=[f"{cap} = open_video_capture({params['path']!r})"],
+            cleanup=[f"if {cap} is not None:", f"    {cap}.release()"],
+        )
+
+    @classmethod
+    def export_problems(cls, params):
+        return [] if params["path"] else ["no se ha seleccionado ningún archivo de video"]
+
+
+@register_node
+class Webcam(NodeDefinition):
+    type_id = "input.webcam"
+    label = "Webcam"
+    category = INPUT
+    description = "Fotogramas de una cámara. Solo funciona en tiempo real (Ejecutar, F5)."
+    is_source = True
+    outputs = (OutputSpec("image", T.IMAGE, "Fotograma"),)
+    params = (ParamSpec("index", ParamKind.INT, 0, label="Cámara", minimum=0, maximum=9),)
+
+    @classmethod
+    def open_source(cls, params):
+        return CaptureSource(open_camera_capture(params["index"]))
+
+    def process(self, ctx, inputs, params):
+        frame = ctx.frames.get(ctx.node_id)
+        if frame is None:
+            raise ValueError("La cámara solo funciona en tiempo real: pulsa Ejecutar (F5)")
+        return {"image": frame}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("open_camera_capture")
+        gen.helper("read_frame")
+        cap, frame = gen.new_var("camera"), gen.new_var("frame")
+        return CodeFragment(
+            [
+                f"{frame} = read_frame({cap})",
+                f"if {frame} is None:",
+                "    break  # la cámara dejó de entregar fotogramas",
+            ],
+            {"image": frame},
+            pre=[f"{cap} = None"],
+            setup=[f"{cap} = open_camera_capture({params['index']})"],
+            cleanup=[f"if {cap} is not None:", f"    {cap}.release()"],
+        )

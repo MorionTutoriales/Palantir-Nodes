@@ -32,6 +32,7 @@ py -3.13 -m venv .venv
 | `nodes/` | Contrato `NodeDefinition`, especificaciones, registro, biblioteca | No |
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
 | `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
+| `media/` | Apertura y lectura de video, cámaras y escritores (compartido con el script exportado) | No |
 | `codegen/` | Generador de scripts Python y helpers compartidos con el motor | No |
 | `ui/properties/` | Panel de propiedades y widgets por tipo de parámetro | Sí |
 | `ui/viewer/` | Visor de imágenes con zoom y desplazamiento | Sí |
@@ -43,7 +44,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 4 (editor, motor, procesamiento y exportación a Python)
+## Estado: Fases 1 a 5 (editor, motor, procesamiento, exportación y tiempo real)
 
 ### Implementado
 
@@ -76,10 +77,24 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   se avisa de problemas (entrada sin conectar, archivo sin elegir) y se seleccionan los nodos.
   Las rutas se escriben tal cual están en el grafo (las relativas lo son al directorio actual).
 
+- **Video y tiempo real:** nodos Load Video, Webcam, Video Viewer y Save Video. Si el grafo
+  tiene una fuente, `F5` inicia el tiempo real: un `QThread` procesa fotograma a fotograma
+  (los archivos a su velocidad; las cámaras al ritmo del dispositivo). **Pausa** (`F6`) y
+  **Detener** (`Shift+F5`) controlan la sesión; los cambios en el grafo se aplican en vivo sin
+  reabrir las fuentes que no cambiaron. El visor muestra FPS y tiempo por fotograma. Si el
+  procesamiento es más lento que la fuente se descartan fotogramas: nunca se acumulan.
+  Cámaras, archivos y escritores se liberan al detener, al terminar el video, ante un error
+  y al cerrar la ventana. Save Video solo escribe en tiempo real iniciado con `F5`.
+- **Exportar con video:** si hay fuentes, el script procesa en un bucle (`--max-frames N`,
+  `--no-show`, `q` cierra las ventanas), abre los recursos antes del bucle y los libera en
+  `finally`. Un error indica el nodo que falló.
+
 ### No implementado todavía
 
-- **Video, webcam y tiempo real** (Fase 5): Load Video, Webcam, Video Viewer, Save Video,
-  Detener, FPS. El visor solo muestra imágenes estáticas.
+- **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
+  iteración; el tipo `Video` como flujo completo no se usa todavía.
+- **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
+  de archivos de video sí está verificada de punta a punta.
 - **Guardar y abrir proyectos JSON**: pendiente.
 - **Frames/grupos visuales, previsualización dentro del nodo, edición de valores dentro del
   nodo, preferencias** (Fase 6).
@@ -100,7 +115,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 | Encuadrar todo | `Inicio` |
 | Cancelar conexión en curso | `Esc` o clic derecho |
 
-### Criterios de aceptación (Fases 1-4)
+### Criterios de aceptación (Fases 1-5)
 
 1. `python -m palantir_nodes` abre la ventana sin errores.
 2. Se puede construir Load Image → Grayscale → Threshold → Find Contours → Draw Contours →
@@ -111,4 +126,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 5. La interfaz sigue respondiendo mientras se procesa.
 6. Exportar a Python un grafo y ejecutar el script produce las mismas imágenes que el motor
    (las pruebas lo comprueban nodo por nodo y con cadenas de matemáticas y conversiones).
-7. `pytest` pasa (203 pruebas: modelo, validación, motor, nodos, exportación y UI real).
+7. Load Video → nodos → Video Viewer reproduce a la velocidad del archivo con FPS, se puede
+   pausar y detener, y la interfaz sigue respondiendo.
+8. Tras detener, terminar o cerrar, el archivo de video puede borrarse (no queda abierto).
+9. `pytest` pasa (231 pruebas: modelo, validación, motor, nodos, exportación, tiempo real y UI real).

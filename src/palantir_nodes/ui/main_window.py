@@ -33,7 +33,6 @@ _PENDING = {
     "open": ("Abrir proyecto…", "Ctrl+O", "Guardado/carga JSON: pendiente"),
     "save": ("Guardar", "Ctrl+S", "Guardado/carga JSON: pendiente"),
     "save_as": ("Guardar como…", "Ctrl+Shift+S", "Guardado/carga JSON: pendiente"),
-    "stop": ("Detener", "Shift+F5", "Ejecución en tiempo real: Fase 5"),
     "prefs": ("Preferencias…", "", "Preferencias: pendiente"),
 }
 
@@ -68,6 +67,8 @@ class MainWindow(QMainWindow):
         self.scene.selectionChanged.connect(self._on_selection_changed)
         self.runner.started.connect(lambda: self.show_message("Procesando…", 0))
         self.runner.finished.connect(self._on_run_finished)
+        self.runner.realtime_changed.connect(self._on_realtime_changed)
+        self.runner.realtime_stopped.connect(self._on_realtime_stopped)
         self.scene.status_message.connect(self.show_message)
         self.controller.status_message.connect(self.show_message)
         self.view.zoom_changed.connect(self._update_zoom_label)
@@ -101,8 +102,22 @@ class MainWindow(QMainWindow):
 
         self.action_run = QAction("Ejecutar", self)
         self.action_run.setShortcut(QKeySequence("F5"))
-        self.action_run.setToolTip("Ejecutar el grafo (F5). Save Image solo escribe aquí.")
-        self.action_run.triggered.connect(lambda: self.runner.run(side_effects=True))
+        self.action_run.setToolTip(
+            "Ejecutar (F5). Con Webcam o Load Video inicia el tiempo real; "
+            "Save Image / Save Video solo escriben aquí."
+        )
+        self.action_run.triggered.connect(self._on_run_triggered)
+        self.action_stop = QAction("Detener", self)
+        self.action_stop.setShortcut(QKeySequence("Shift+F5"))
+        self.action_stop.setToolTip("Detener el tiempo real y liberar cámaras y archivos")
+        self.action_stop.setEnabled(False)
+        self.action_stop.triggered.connect(lambda: self.runner.stop_realtime())
+        self.action_pause = QAction("Pausa", self)
+        self.action_pause.setShortcut(QKeySequence("F6"))
+        self.action_pause.setCheckable(True)
+        self.action_pause.setToolTip("Pausar o reanudar el tiempo real (F6)")
+        self.action_pause.setEnabled(False)
+        self.action_pause.toggled.connect(self.runner.set_paused)
         self.action_export = QAction("Exportar Python…", self)
         self.action_export.setShortcut(QKeySequence("Ctrl+E"))
         self.action_export.setToolTip("Exportar el grafo como un script Python independiente")
@@ -167,7 +182,8 @@ class MainWindow(QMainWindow):
         run_menu = bar.addMenu("E&jecución")
         run_menu.addAction(self.action_run)
         run_menu.addAction(self.action_auto)
-        run_menu.addAction(p["stop"])
+        run_menu.addAction(self.action_pause)
+        run_menu.addAction(self.action_stop)
 
     def _create_toolbar(self) -> None:
         toolbar = QToolBar("Principal", self)
@@ -182,7 +198,8 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.action_run)
         toolbar.addAction(self.action_auto)
-        toolbar.addAction(p["stop"])
+        toolbar.addAction(self.action_pause)
+        toolbar.addAction(self.action_stop)
         toolbar.addSeparator()
         toolbar.addAction(self.action_export)
         toolbar.addSeparator()
@@ -229,15 +246,43 @@ class MainWindow(QMainWindow):
         if enabled:
             self.runner.run(side_effects=False)
 
+    def _on_run_triggered(self) -> None:
+        if self.runner.realtime_active:
+            return
+        if self.runner.has_sources():
+            self.runner.start_realtime(side_effects=True)
+        else:
+            self.runner.run(side_effects=True)
+
+    def _on_realtime_changed(self, active: bool) -> None:
+        self.action_run.setEnabled(not active)
+        self.action_stop.setEnabled(active)
+        self.action_pause.setEnabled(active)
+        if not active:
+            self.action_pause.blockSignals(True)
+            self.action_pause.setChecked(False)
+            self.action_pause.blockSignals(False)
+        else:
+            self.show_message("Tiempo real iniciado", 3000)
+
+    def _on_realtime_stopped(self, reason: str) -> None:
+        self.show_message(f"Tiempo real detenido: {reason}" if reason else "Tiempo real detenido")
+
     def _on_run_finished(self, result) -> None:
         self.last_result = result
         self.scene.apply_statuses(result.errors, result.blocked)
         self.properties.set_statuses(result.errors, result.blocked)
         failed = len(result.errors)
-        summary = f"{len(result.computed)} calculados · {len(result.cached)} en caché"
-        if failed:
-            summary += f" · {failed} con error"
-        self.show_message(f"Ejecutado en {result.total_ms:.1f} ms — {summary}", 6000)
+        if result.fps is not None:
+            summary = f"Tiempo real: {result.fps:.1f} FPS · {result.total_ms:.1f} ms/fotograma"
+            if failed:
+                summary += f" · {failed} con error"
+            self.show_message(summary, 2000)
+        else:
+            summary = f"{len(result.computed)} calculados · {len(result.cached)} en caché"
+            if failed:
+                summary += f" · {failed} con error"
+            self.show_message(f"Ejecutado en {result.total_ms:.1f} ms — {summary}", 6000)
         if "__engine__" in result.errors:
             self.show_message(result.errors["__engine__"], 10000)
         self._update_viewer()
@@ -248,7 +293,7 @@ class MainWindow(QMainWindow):
         if len(selected) == 1:
             return selected[0]
         for node_id, node in self.graph.nodes.items():
-            if node.type_id == "output.image_viewer":
+            if node.type_id in ("output.image_viewer", "output.video_viewer"):
                 return node_id
         return None
 
@@ -267,7 +312,11 @@ class MainWindow(QMainWindow):
             self.viewer.show_message(result.blocked[node_id], error=True, source=label)
         elif node_id in result.images:
             self.viewer.show_image(
-                result.images[node_id], label, result.times_ms.get(node_id), result.total_ms
+                result.images[node_id],
+                label,
+                result.times_ms.get(node_id),
+                result.total_ms,
+                result.fps,
             )
         elif node_id in result.outputs:
             self.viewer.show_message("Este nodo no produce una imagen.", source=label)

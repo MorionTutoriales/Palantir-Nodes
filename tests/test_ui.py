@@ -1,5 +1,7 @@
 """Pruebas de la interfaz con eventos de ratón reales sobre la vista."""
 
+import os
+
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
@@ -302,3 +304,125 @@ def test_export_action_writes_script_and_reports_problems(
     code = target.read_text(encoding="utf-8")
     assert "def main(" in code and "cv2.imshow" in code
     compile(code, str(target), "exec")
+
+
+# -- tiempo real en la interfaz ----------------------------------------------------------
+
+
+def build_video_graph(win, video_path, *, loop=True):
+    ctl = win.controller
+    load = ctl.add_node("input.load_video", (-400, 0))
+    thr = ctl.add_node("image.threshold", (-150, 0))
+    view = ctl.add_node("output.video_viewer", (100, 0))
+    ctl.set_param(load, "path", video_path)
+    ctl.set_param(load, "loop", loop)
+    ctl.connect(load, "image", thr, "image")
+    ctl.connect(thr, "image", view, "image")
+    win.runner.auto_run = False
+    return load, thr, view
+
+
+def test_realtime_worker_never_accumulates_frames(qtbot):
+    from palantir_nodes.engine.executor import ExecutionResult
+    from palantir_nodes.engine.plan import ExecutionPlan
+    from palantir_nodes.ui.realtime_worker import RealtimeWorker
+
+    worker = RealtimeWorker(ExecutionPlan(), True)
+    notices = []
+    worker.frame_ready.connect(lambda: notices.append(1))
+    for i in range(100):  # la interfaz no recoge nada: 100 fotogramas "rápidos"
+        result = ExecutionResult()
+        result.total_ms = float(i)
+        worker._publish(result)
+    assert len(notices) == 1  # un solo aviso pendiente
+    assert worker.take().total_ms == 99.0  # y solo se conserva el último
+    assert worker.take() is None
+    worker._publish(ExecutionResult())
+    assert len(notices) == 2  # tras recoger se vuelve a avisar
+
+
+def test_realtime_start_pause_resume_stop_releases_file(qtbot, real_window, video_path):
+    win = real_window
+    build_video_graph(win, video_path)
+    assert win.runner.has_sources()
+    win.action_run.trigger()
+    assert win.runner.realtime_active
+    assert win.action_stop.isEnabled() and win.action_pause.isEnabled()
+    assert not win.action_run.isEnabled()
+
+    qtbot.waitUntil(
+        lambda: win.last_result is not None and win.last_result.fps is not None, timeout=5000
+    )
+    assert win.viewer.stack.currentWidget() is win.viewer.canvas
+    assert "FPS" in win.viewer.info.text()
+    assert "64×48" in win.viewer.info.text()
+
+    win.action_pause.setChecked(True)
+    qtbot.wait(150)  # deja que termine el fotograma en curso
+    paused_result = win.last_result
+    qtbot.wait(300)
+    assert win.last_result is paused_result  # en pausa no llegan fotogramas
+    win.action_pause.setChecked(False)
+    qtbot.waitUntil(lambda: win.last_result is not paused_result, timeout=5000)
+
+    with qtbot.waitSignal(win.runner.realtime_stopped, timeout=5000) as stopped:
+        win.action_stop.trigger()
+    assert stopped.args == [""]  # detenido por el usuario
+    assert not win.runner.realtime_active
+    assert win.action_run.isEnabled() and not win.action_stop.isEnabled()
+    os.remove(video_path)  # el archivo quedó liberado
+
+
+def test_realtime_follows_graph_edits(qtbot, real_window, video_path):
+    win = real_window
+    load, thr, view = build_video_graph(win, video_path)
+    win.runner.auto_run = True
+    win.action_run.trigger()
+    qtbot.waitUntil(
+        lambda: win.last_result is not None and view in win.last_result.images, timeout=5000
+    )
+    win.controller.set_param(thr, "thresh", 0.0)  # todo pasa a blanco
+    qtbot.waitUntil(lambda: int(win.last_result.images[view].min()) == 255, timeout=5000)
+    win.controller.set_param(thr, "thresh", 254.0)
+    qtbot.waitUntil(lambda: int(win.last_result.images[view].max()) == 0, timeout=5000)
+    win.runner.stop_realtime(wait=True)
+    assert not win.runner.realtime_active
+
+
+def test_realtime_ends_by_itself_at_end_of_video(qtbot, real_window, video_path):
+    win = real_window
+    build_video_graph(win, video_path, loop=False)
+    with qtbot.waitSignal(win.runner.realtime_stopped, timeout=8000) as stopped:
+        win.action_run.trigger()
+    assert "Load Video" in stopped.args[0]
+    assert not win.runner.realtime_active and win.action_run.isEnabled()
+
+
+def test_realtime_source_error_is_shown_on_node(qtbot, real_window):
+    win = real_window
+    load, thr, view = build_video_graph(win, "no_existe.avi")
+    with qtbot.waitSignal(win.runner.realtime_stopped, timeout=5000) as stopped:
+        win.action_run.trigger()
+    assert "No existe el archivo" in stopped.args[0]
+    assert win.scene.node_items[load].status == "error"
+    assert win.scene.node_items[thr].status == "blocked"
+    assert "Depende de" in win.viewer.message.text()  # el visor muestra su propio nodo
+
+
+def test_closing_window_stops_realtime_and_releases_resources(qtbot, real_window, video_path):
+    win = real_window
+    build_video_graph(win, video_path)
+    win.action_run.trigger()
+    qtbot.waitUntil(lambda: win.last_result is not None, timeout=5000)
+    win.close()
+    assert not win.runner.realtime_active
+    os.remove(video_path)
+
+
+def test_graph_without_sources_still_runs_static(qtbot, real_window):
+    win = real_window
+    win.controller.add_node("input.number", (0, 0))
+    assert not win.runner.has_sources()
+    with qtbot.waitSignal(win.runner.finished, timeout=5000):
+        win.action_run.trigger()
+    assert not win.runner.realtime_active

@@ -63,3 +63,20 @@ def registry() -> NodeRegistry:
 @pytest.fixture
 def graph(registry) -> Graph:
     return Graph(registry)
+
+
+@pytest.fixture
+def video_path(tmp_path):
+    """Video MJPG de 10 fotogramas (64x48, 25 FPS) con un cuadrado que se mueve."""
+    import cv2
+    import numpy as np
+
+    path = tmp_path / "vídeo ñ.avi"  # ruta con caracteres no ASCII
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 25.0, (64, 48))
+    assert writer.isOpened()
+    for i in range(10):
+        frame = np.full((48, 64, 3), 40, np.uint8)
+        cv2.rectangle(frame, (4 + i * 4, 10), (20 + i * 4, 30), (200, 120, 60), -1)
+        writer.write(frame)
+    writer.release()
+    return str(path)
