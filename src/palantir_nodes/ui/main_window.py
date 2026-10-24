@@ -144,6 +144,11 @@ class MainWindow(QMainWindow):
         self.action_export.setShortcut(QKeySequence("Ctrl+E"))
         self.action_export.setToolTip("Exportar el grafo como un script Python independiente")
         self.action_export.triggered.connect(self.export_python)
+        self.action_previews = QAction("Previsualizaciones en los nodos", self)
+        self.action_previews.setCheckable(True)
+        self.action_previews.setChecked(True)
+        self.action_previews.setToolTip("Mostrar una miniatura del resultado dentro de cada nodo")
+        self.action_previews.toggled.connect(self._set_previews)
         self.action_auto = QAction("Auto", self)
         self.action_auto.setCheckable(True)
         self.action_auto.setChecked(True)
@@ -197,6 +202,7 @@ class MainWindow(QMainWindow):
 
         view_menu = bar.addMenu("&Ver")
         view_menu.addAction(self.view.action_frame)
+        view_menu.addAction(self.action_previews)
         view_menu.addSeparator()
         view_menu.addAction(self.properties_dock.toggleViewAction())
         view_menu.addAction(self.viewer_dock.toggleViewAction())
@@ -299,8 +305,18 @@ class MainWindow(QMainWindow):
     def _on_realtime_stopped(self, reason: str) -> None:
         self.show_message(f"Tiempo real detenido: {reason}" if reason else "Tiempo real detenido")
 
+    def _set_previews(self, enabled: bool) -> None:
+        self.runner.set_previews(enabled)
+        if enabled:
+            if not self.runner.realtime_active:
+                self.runner.run(side_effects=False)  # recalcula para tener miniaturas
+        else:
+            self.scene.apply_previews({})
+
     def _on_run_finished(self, result) -> None:
         self.last_result = result
+        if result.previews is not None:  # None = no se calcularon en este fotograma
+            self.scene.apply_previews(result.previews)
         self.scene.apply_statuses(result.errors, result.blocked)
         self.properties.set_statuses(result.errors, result.blocked)
         failed = len(result.errors)
@@ -394,6 +410,7 @@ class MainWindow(QMainWindow):
         state = self.view.state()
         self.project.name = path.stem
         self.project.auto_run = self.runner.auto_run
+        self.project.previews = self.runner.preview_enabled
         self.project.zoom = state["zoom"]
         self.project.center = tuple(state["center"])
         try:
@@ -441,6 +458,10 @@ class MainWindow(QMainWindow):
         self.action_auto.blockSignals(True)
         self.action_auto.setChecked(project.auto_run)
         self.action_auto.blockSignals(False)
+        self.action_previews.blockSignals(True)
+        self.action_previews.setChecked(project.previews)
+        self.action_previews.blockSignals(False)
+        self.runner.set_previews(project.previews)
         self.runner.auto_run = project.auto_run
         if project.auto_run:
             self.runner.run(side_effects=False)
@@ -484,6 +505,7 @@ class MainWindow(QMainWindow):
             self.controller.new_graph()
             self.project, self.project_path = ProjectData(), None
             self.project.auto_run = self.runner.auto_run
+            self.project.previews = self.runner.preview_enabled
             self.last_result = None
             self.undo_stack.setClean()
             self.view.frame_all()

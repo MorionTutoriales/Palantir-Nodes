@@ -11,8 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsItem, QStyle
 
 from palantir_nodes.core.graph import NodeInstance
@@ -21,6 +22,7 @@ from palantir_nodes.nodes.specs import ParamKind, ParamSpec
 from palantir_nodes.ui.editor.field_values import NUMERIC_KINDS, scrub_value
 from palantir_nodes.ui.editor.socket_item import SocketItem
 from palantir_nodes.ui.theme import Colors
+from palantir_nodes.ui.viewer.panel import ndarray_to_qimage
 
 
 @dataclass
@@ -32,6 +34,10 @@ class _Row:
     spec: ParamSpec | None = None  # parámetro o valor editable de una entrada
 
 
+PREVIEW_WIDTH = 172.0  # espacio máximo de la miniatura dentro del nodo
+PREVIEW_HEIGHT = 110.0
+PREVIEW_GAP = 6.0
+PREVIEW_MAX_UPSCALE = 3.0  # las imágenes diminutas se amplían como mucho 3 veces
 DRAG_THRESHOLD = 4.0  # píxeles antes de que un clic en un campo pase a ser un arrastre
 
 
@@ -63,6 +69,8 @@ class NodeItem(QGraphicsItem):
         self._font.setPointSizeF(8.5)
         self._connected: set[str] = set()
         self._hover_row: _Row | None = None
+        self._preview_pixmap: QPixmap | None = None
+        self._preview_size = (0.0, 0.0)
         self._field_press: dict | None = None
         self.status: str | None = None
         self.status_message = ""
@@ -89,11 +97,45 @@ class NodeItem(QGraphicsItem):
             self.input_sockets[spec.name] = socket
             self._rows.append(_Row("input", spec.name, spec.display_label, y, spec.value_spec()))
             y += self.ROW
-        self._height = y + self.PAD
+        self._base_height = y + self.PAD
+        self._height = self._base_height
 
     @property
     def height(self) -> float:
         return self._height
+
+    # -- previsualización --------------------------------------------------------------
+
+    @property
+    def has_preview(self) -> bool:
+        return self._preview_pixmap is not None
+
+    def preview_rect(self) -> QRectF | None:
+        """Rectángulo (coordenadas locales) que ocupa la miniatura, o ``None``."""
+        if self._preview_pixmap is None:
+            return None
+        width, height = self._preview_size
+        top = self._base_height - self.PAD + PREVIEW_GAP
+        return QRectF((self.WIDTH - width) / 2, top, width, height)
+
+    def set_preview(self, image: np.ndarray | None) -> None:
+        """Muestra una miniatura al final del nodo (``None`` la quita y recupera la altura)."""
+        if image is None:
+            if self._preview_pixmap is None:
+                return
+            self._preview_pixmap = None
+            extra = 0.0
+        else:
+            img_h, img_w = image.shape[:2]
+            scale = min(PREVIEW_WIDTH / img_w, PREVIEW_HEIGHT / img_h, PREVIEW_MAX_UPSCALE)
+            self._preview_pixmap = QPixmap.fromImage(ndarray_to_qimage(image))
+            self._preview_size = (img_w * scale, img_h * scale)
+            extra = self._preview_size[1] + PREVIEW_GAP
+        new_height = self._base_height + extra
+        if new_height != self._height:
+            self.prepareGeometryChange()
+            self._height = new_height
+        self.update()
 
     def socket(self, name: str, is_output: bool) -> SocketItem | None:
         return (self.output_sockets if is_output else self.input_sockets).get(name)
@@ -175,6 +217,17 @@ class NodeItem(QGraphicsItem):
         painter.setFont(self._font)
         for row in self._rows:
             self._paint_row(painter, row)
+        self._paint_preview(painter)
+
+    def _paint_preview(self, painter: QPainter) -> None:
+        rect = self.preview_rect()
+        if rect is None:
+            return
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setPen(QPen(QColor("#151515"), 1))
+        painter.setBrush(QColor(Colors.BASE))
+        painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), 3, 3)
+        painter.drawPixmap(rect, self._preview_pixmap, QRectF(self._preview_pixmap.rect()))
 
     def _paint_row(self, painter: QPainter, row: _Row) -> None:
         text_color = QColor(Colors.NODE_TEXT)

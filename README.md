@@ -45,7 +45,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 5, proyectos, frames y edición en el nodo (Fase 6, partes 1-3)
+## Estado: Fases 1 a 5, proyectos, frames, edición y previsualización en el nodo (Fase 6, partes 1-4)
 
 ### Implementado
 
@@ -130,13 +130,22 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     deja ese nodo como única selección. El panel de propiedades sigue disponible y se mantiene
     sincronizado. Arrastrar el encabezado sigue moviendo el nodo.
 
+- **Previsualización dentro del nodo:** los nodos que producen o reciben una imagen muestran
+  una miniatura de su resultado al final del nodo (se ajusta a la proporción, sin ampliar más
+  de 3 veces las imágenes diminutas). Las miniaturas se calculan en el hilo de trabajo, no en
+  la interfaz. Los nodos con error o sin imagen no muestran ninguna. En tiempo real se
+  actualizan unas 15 veces por segundo como máximo, sin frenar el procesamiento. Se activan
+  o desactivan en **Ver → Previsualizaciones en los nodos** (el estado se guarda en el
+  proyecto); desactivadas, ni siquiera se calculan.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Previsualización dentro del nodo, preferencias** (resto de la Fase 6). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
+- **Preferencias** (resto de la Fase 6) y varios nodos de la especificación original
+  (p. ej. Add/Subtract entre imágenes, Convert Color). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
   copiar/pegar.
 
 Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
@@ -176,5 +185,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
     guarda y se reabre, y no cambia el resultado ni el script exportado.
 11. Los valores se editan dentro del nodo (clic, texto, arrastre, menú, color, archivo) con
     deshacer, sin mover el nodo y sin disparar atajos mientras se escribe.
-12. `pytest` pasa (360 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
-    persistencia, frames, edición en el nodo y UI real).
+12. Cada nodo con imagen muestra su miniatura tras ejecutar y en tiempo real; se puede
+    desactivar y no se calcula si está desactivada.
+13. `pytest` pasa (381 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia, frames, edición y previsualización en el nodo y UI real).

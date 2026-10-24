@@ -22,9 +22,15 @@ class RealtimeWorker(QObject):
     frame_ready = Signal()
     done = Signal(str)  # motivo de finalización ("" si el usuario la detuvo)
 
-    def __init__(self, plan: ExecutionPlan, side_effects: bool) -> None:
+    def __init__(
+        self,
+        plan: ExecutionPlan,
+        side_effects: bool,
+        preview_max: tuple[int, int] | None = None,
+    ) -> None:
         super().__init__()
         self._plan = plan
+        self._preview_max = preview_max
         self._side_effects = side_effects
         self._lock = threading.Lock()
         self._new_plan: ExecutionPlan | None = None
@@ -46,6 +52,9 @@ class RealtimeWorker(QObject):
         else:
             self._running.set()
 
+    def set_preview_max(self, preview_max: tuple[int, int] | None) -> None:
+        self._preview_max = preview_max  # asignación atómica; la lee el bucle en cada vuelta
+
     def update_plan(self, plan: ExecutionPlan) -> None:
         with self._lock:
             self._new_plan = plan
@@ -61,6 +70,9 @@ class RealtimeWorker(QObject):
 
     def _publish(self, result: ExecutionResult) -> None:
         with self._lock:
+            previous = self._latest
+            if result.previews is None and previous is not None:
+                result.previews = previous.previews  # no perder miniaturas al sustituir
             self._latest = result  # sustituye a un resultado no recogido
             notify = not self._notified
             self._notified = True
@@ -85,6 +97,7 @@ class RealtimeWorker(QObject):
                 if plan is not None:
                     session.set_plan(plan)
 
+                session.preview_size = self._preview_max
                 started = time.perf_counter()
                 result = session.step()
                 if result is None:

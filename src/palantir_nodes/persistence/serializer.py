@@ -37,6 +37,7 @@ class ProjectData:
 
     name: str = ""
     auto_run: bool = True
+    previews: bool = True
     zoom: float = 1.0
     center: tuple[float, float] = (0.0, 0.0)
     preserved_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -55,7 +56,7 @@ def dump(graph: Graph, project: ProjectData, app_version: str = "") -> dict[str,
             "app_version": app_version,
             "saved_at": datetime.now(UTC).isoformat(timespec="seconds"),
         },
-        "settings": {"auto_run": project.auto_run},
+        "settings": {"auto_run": project.auto_run, "previews": project.previews},
         "editor": {
             "zoom": project.zoom,
             "center": [project.center[0], project.center[1]],
@@ -122,6 +123,8 @@ def load(data: dict[str, Any], registry: NodeRegistry) -> tuple[Graph, ProjectDa
     settings = data.get("settings") if isinstance(data.get("settings"), dict) else {}
     if isinstance(settings.get("auto_run"), bool):
         project.auto_run = settings["auto_run"]
+    if isinstance(settings.get("previews"), bool):
+        project.previews = settings["previews"]
     editor = data.get("editor") if isinstance(data.get("editor"), dict) else {}
     zoom = _number(editor.get("zoom"))
     if zoom is not None and zoom > 0:

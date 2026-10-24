@@ -18,6 +18,7 @@ import numpy as np
 
 from palantir_nodes.core.types import SocketType, conversion_between
 from palantir_nodes.engine.plan import ExecutionPlan, PlanNode
+from palantir_nodes.engine.thumbnails import make_thumbnail
 
 
 @dataclass
@@ -37,6 +38,8 @@ class ExecContext:
     node_id: str = ""
     # Recursos con ciclo de vida (p. ej. VideoWriter): nodo -> (clave, objeto, cierre).
     resources: dict[str, tuple[Any, Any, Callable[[], None]]] = field(default_factory=dict)
+    # Si se indica (ancho, alto), el resultado incluye miniaturas de las imágenes de cada nodo.
+    preview_max: tuple[int, int] | None = None
 
     def close_resources(self) -> None:
         """Libera todos los recursos abiertos por los nodos; nunca lanza."""
@@ -60,6 +63,9 @@ class ExecutionResult:
     times_ms: dict[str, float] = field(default_factory=dict)
     total_ms: float = 0.0
     fps: float | None = None  # solo en tiempo real
+    # nodo -> miniatura. ``None`` = no se calcularon (desactivadas o limitadas por frecuencia),
+    # distinto de ``{}`` = se calcularon y ningún nodo tiene imagen.
+    previews: dict[str, np.ndarray] | None = None
 
     @property
     def ok(self) -> bool:
@@ -150,6 +156,12 @@ class Executor:
         for stale in set(self._cache) - set(plan.nodes):
             del self._cache[stale]
         result.total_ms = (time.perf_counter() - started) * 1000
+        if ctx.preview_max is not None:
+            width, height = ctx.preview_max
+            result.previews = {
+                node_id: make_thumbnail(image, width, height)
+                for node_id, image in result.images.items()
+            }
         return result
 
     @staticmethod

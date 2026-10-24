@@ -7,6 +7,7 @@ decide el ritmo (ver ``ui/run_controller.py``).
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from palantir_nodes.engine.executor import ExecContext, ExecutionResult, Executor
@@ -24,6 +25,10 @@ class RealtimeSession:
         self.executor = Executor()
         self.finished = False
         self.finish_reason = ""
+        # Miniaturas: tamaño máximo (``None`` = desactivadas) y separación mínima entre cálculos.
+        self.preview_size: tuple[int, int] | None = None
+        self.preview_interval = 0.066
+        self._last_preview = float("-inf")
         self._sources: dict[str, tuple[Any, Any]] = {}  # nodo -> (configuración, fuente)
         self._errors: dict[str, str] = {}
         self._reconcile()
@@ -87,6 +92,7 @@ class RealtimeSession:
 
         self.ctx.frames = frames
         self.ctx.frame_index += 1
+        self.ctx.preview_max = self._preview_for_this_frame()
         result = self.executor.run(self.plan, self.ctx)
         for node_id, (_config, message) in self._errors.items():
             result.errors[node_id] = message
@@ -97,6 +103,16 @@ class RealtimeSession:
             first = next(iter(self._errors.values()), None)
             self.finish_reason = first[1] if first else "El grafo no tiene fuentes de video"
         return result
+
+    def _preview_for_this_frame(self) -> tuple[int, int] | None:
+        """Limita las miniaturas a unas ~15 por segundo: el resto de fotogramas no las calcula."""
+        if self.preview_size is None:
+            return None
+        now = time.perf_counter()
+        if now - self._last_preview < self.preview_interval:
+            return None
+        self._last_preview = now
+        return self.preview_size
 
     def close(self) -> None:
         """Libera cámaras, archivos y escritores. Es seguro llamarlo varias veces."""

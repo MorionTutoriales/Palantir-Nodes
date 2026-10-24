@@ -14,6 +14,7 @@ from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.engine.executor import ExecContext, ExecutionResult, Executor
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.engine.realtime import source_nodes
+from palantir_nodes.engine.thumbnails import PREVIEW_MAX
 from palantir_nodes.ui.realtime_worker import RealtimeWorker
 
 _TRIGGERS = {
@@ -34,10 +35,13 @@ class _Worker(QObject):
         super().__init__()
         self._executor = Executor()
 
-    @Slot(object, bool)
-    def run(self, plan: ExecutionPlan, side_effects: bool) -> None:
+    @Slot(object, bool, object)
+    def run(
+        self, plan: ExecutionPlan, side_effects: bool, preview_max: tuple[int, int] | None
+    ) -> None:
         try:
-            result = self._executor.run(plan, ExecContext(side_effects=side_effects))
+            ctx = ExecContext(side_effects=side_effects, preview_max=preview_max)
+            result = self._executor.run(plan, ctx)
         except Exception as exc:  # fallo inesperado del motor: no debe matar el hilo
             result = ExecutionResult()
             result.errors["__engine__"] = f"Error interno del motor: {exc}"
@@ -54,7 +58,7 @@ class RunController(QObject):
     realtime_changed = Signal(bool)  # sesión en tiempo real iniciada / terminada
     realtime_stopped = Signal(str)  # motivo (vacío si la detuvo el usuario)
 
-    _request = Signal(object, bool)
+    _request = Signal(object, bool, object)
     _clear = Signal()
 
     def __init__(self, graph: Graph, parent=None) -> None:
@@ -67,6 +71,7 @@ class RunController(QObject):
         self._rt_thread: QThread | None = None
         self._rt_reason = ""
         self._paused = False
+        self._preview_enabled = True
 
         self._thread = QThread(self)
         self._thread.setObjectName("palantir-engine")
@@ -133,7 +138,7 @@ class RunController(QObject):
         self._timer.stop()
         self._rt_reason = ""
         self._paused = False
-        worker = RealtimeWorker(plan, side_effects)
+        worker = RealtimeWorker(plan, side_effects, self._preview_max())
         thread = QThread()
         thread.setObjectName("palantir-realtime")
         worker.moveToThread(thread)
@@ -158,6 +163,21 @@ class RunController(QObject):
         if wait and thread is not None:
             thread.wait()
             self._cleanup_realtime()
+
+    # -- miniaturas --------------------------------------------------------------------
+
+    @property
+    def preview_enabled(self) -> bool:
+        return self._preview_enabled
+
+    def set_previews(self, enabled: bool) -> None:
+        """Activa o desactiva el cálculo de miniaturas (también en una sesión en marcha)."""
+        self._preview_enabled = enabled
+        if self._rt_worker is not None:
+            self._rt_worker.set_preview_max(self._preview_max())
+
+    def _preview_max(self) -> tuple[int, int] | None:
+        return PREVIEW_MAX if self._preview_enabled else None
 
     def set_paused(self, paused: bool) -> None:
         if self._rt_worker is not None:
@@ -196,7 +216,7 @@ class RunController(QObject):
     def _start(self, side_effects: bool) -> None:
         self._busy = True
         self.started.emit()
-        self._request.emit(ExecutionPlan.from_graph(self.graph), side_effects)
+        self._request.emit(ExecutionPlan.from_graph(self.graph), side_effects, self._preview_max())
 
     @Slot(object)
     def _on_done(self, result: ExecutionResult) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsSceneMouseEvent
@@ -149,6 +150,11 @@ class NodeScene(QGraphicsScene):
         item = self.node_items.get(node_id)
         if item is not None:
             item.set_connected_inputs(self.graph.connected_inputs(node_id))
+
+    def apply_previews(self, previews: dict[str, np.ndarray]) -> None:
+        """Muestra la miniatura de cada nodo (y quita la de los que ya no tienen imagen)."""
+        for node_id, item in self.node_items.items():
+            item.set_preview(previews.get(node_id))
 
     def apply_statuses(self, errors: dict[str, str], blocked: dict[str, str]) -> None:
         for node_id, item in self.node_items.items():
