@@ -34,6 +34,8 @@ class _LinkDrag:
 class NodeScene(QGraphicsScene):
     status_message = Signal(str)
     frame_rename_requested = Signal(str)
+    # (nodo, "param" | "input", nombre, rectángulo del campo en la escena)
+    field_edit_requested = Signal(str, str, str, QRectF)
 
     def __init__(self, graph: Graph, controller: EditorController, parent=None) -> None:
         super().__init__(parent)

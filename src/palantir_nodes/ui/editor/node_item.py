@@ -1,8 +1,9 @@
 """Representación visual de un nodo, al estilo de Blender.
 
 Orden de filas: salidas (socket a la derecha), parámetros y entradas (socket a la
-izquierda). Los valores se muestran dentro del nodo y se editan en el panel de
-propiedades.
+izquierda). Los valores se muestran y se editan dentro del nodo: clic para escribir,
+elegir o conmutar, y arrastre horizontal para ajustar números (el panel de propiedades
+sigue disponible).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import QGraphicsItem, QStyle
 from palantir_nodes.core.graph import NodeInstance
 from palantir_nodes.nodes.categories import get_category
 from palantir_nodes.nodes.specs import ParamKind, ParamSpec
+from palantir_nodes.ui.editor.field_values import NUMERIC_KINDS, scrub_value
 from palantir_nodes.ui.editor.socket_item import SocketItem
 from palantir_nodes.ui.theme import Colors
 
@@ -28,6 +30,9 @@ class _Row:
     label: str
     y: float
     spec: ParamSpec | None = None  # parámetro o valor editable de una entrada
+
+
+DRAG_THRESHOLD = 4.0  # píxeles antes de que un clic en un campo pase a ser un arrastre
 
 
 class NodeItem(QGraphicsItem):
@@ -45,6 +50,7 @@ class NodeItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
+        self.setAcceptHoverEvents(True)
         self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.setZValue(1)
         self.setToolTip(self.definition.description or self.definition.label)
@@ -56,6 +62,8 @@ class NodeItem(QGraphicsItem):
         self._font = QFont()
         self._font.setPointSizeF(8.5)
         self._connected: set[str] = set()
+        self._hover_row: _Row | None = None
+        self._field_press: dict | None = None
         self.status: str | None = None
         self.status_message = ""
 
@@ -185,12 +193,16 @@ class NodeItem(QGraphicsItem):
         values = self.node.params if row.kind == "param" else self.node.input_values
         self._paint_field(painter, row, values.get(row.name))
 
+    def _field_rect(self, row: _Row) -> QRectF:
+        left = 12.0 if row.kind == "input" else 8.0
+        return QRectF(left, row.y + 2, self.WIDTH - left - 8, self.ROW - 4)
+
     def _paint_field(self, painter: QPainter, row: _Row, value: Any) -> None:
         spec = row.spec
-        left = 12.0 if row.kind == "input" else 8.0
-        field = QRectF(left, row.y + 2, self.WIDTH - left - 8, self.ROW - 4)
+        field = self._field_rect(row)
+        hovered = row is self._hover_row
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(Colors.NODE_FIELD))
+        painter.setBrush(QColor(Colors.NODE_FIELD_HOVER if hovered else Colors.NODE_FIELD))
         painter.drawRoundedRect(field, 4, 4)
 
         inner = field.adjusted(6, 0, -6, 0)
@@ -226,6 +238,110 @@ class NodeItem(QGraphicsItem):
         painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
         painter.setPen(QColor(Colors.NODE_TEXT))
         painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignRight, value_text)
+
+    # -- edición de valores dentro del nodo --------------------------------------------
+
+    def _is_editable(self, row: _Row) -> bool:
+        if row.spec is None:
+            return False
+        return row.kind == "param" or (row.kind == "input" and row.name not in self._connected)
+
+    def field_at(self, pos: QPointF) -> _Row | None:
+        """Campo editable (parámetro o entrada sin conectar) bajo ``pos`` (coords. locales)."""
+        for row in self._rows:
+            if self._is_editable(row) and self._field_rect(row).contains(pos):
+                return row
+        return None
+
+    def field_scene_rect(self, name: str, target: str = "param") -> QRectF | None:
+        """Rectángulo en la escena de un campo (``target``: ``"param"`` o ``"input"``)."""
+        for row in self._rows:
+            if row.kind == target and row.name == name and self._is_editable(row):
+                return self.mapRectToScene(self._field_rect(row))
+        return None
+
+    def _current_value(self, row: _Row) -> Any:
+        values = self.node.params if row.kind == "param" else self.node.input_values
+        return values.get(row.name)
+
+    def _apply_value(self, row: _Row, value: Any) -> None:
+        controller = self.scene().controller
+        if row.kind == "param":
+            controller.set_param(self.node_id, row.name, value)
+        else:
+            controller.set_input_value(self.node_id, row.name, value)
+
+    def _set_hover_row(self, row: _Row | None) -> None:
+        if row is not self._hover_row:
+            self._hover_row = row
+            self.update()
+
+    def hoverMoveEvent(self, event) -> None:
+        row = self.field_at(event.pos())
+        self._set_hover_row(row)
+        if row is None:
+            self.unsetCursor()
+        elif row.spec.kind in NUMERIC_KINDS:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        self._set_hover_row(None)
+        self.unsetCursor()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        row = self.field_at(event.pos()) if event.button() == Qt.MouseButton.LeftButton else None
+        if row is None:
+            super().mousePressEvent(event)
+            return
+        scene = self.scene()
+        if not self.isSelected() or len(scene.selectedItems()) > 1:
+            scene.clearSelection()  # el nodo editado pasa a ser la única selección
+            self.setSelected(True)
+        self._field_press = {
+            "row": row,
+            "start": event.scenePos(),
+            "value0": self._current_value(row),
+            "scrubbing": False,
+            "moved": False,
+        }
+        event.accept()  # el campo no arrastra el nodo
+
+    def mouseMoveEvent(self, event) -> None:
+        press = self._field_press
+        if press is None:
+            super().mouseMoveEvent(event)
+            return
+        row = press["row"]
+        offset = event.scenePos() - press["start"]
+        dx = offset.x()
+        if offset.manhattanLength() >= DRAG_THRESHOLD:
+            press["moved"] = True  # un arrastre sin efecto no cuenta como clic
+        if not press["scrubbing"]:
+            if abs(dx) < DRAG_THRESHOLD or row.spec.kind not in NUMERIC_KINDS:
+                return
+            press["scrubbing"] = True
+        fine = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        self._apply_value(row, scrub_value(row.spec, press["value0"], dx, fine=fine))
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        press, self._field_press = self._field_press, None
+        if press is None:
+            super().mouseReleaseEvent(event)
+            return
+        event.accept()
+        if press["scrubbing"] or press["moved"]:
+            return
+        row = press["row"]
+        if row.spec.kind is ParamKind.BOOL:
+            self._apply_value(row, not self._current_value(row))
+        else:
+            rect = self.mapRectToScene(self._field_rect(row))
+            self.scene().field_edit_requested.emit(self.node_id, row.kind, row.name, rect)
 
     # -- eventos -----------------------------------------------------------------------
 

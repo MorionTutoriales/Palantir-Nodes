@@ -45,7 +45,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 5, guardado de proyectos y frames (Fase 6, partes 1-2)
+## Estado: Fases 1 a 5, proyectos, frames y edición en el nodo (Fase 6, partes 1-3)
 
 ### Implementado
 
@@ -116,14 +116,27 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   visuales: no afectan al motor ni al script exportado. Se guardan en el proyecto (campo
   opcional `frames`; los proyectos anteriores siguen abriéndose).
 
+- **Edición de valores dentro del nodo:** los campos que se ven en el nodo son editables.
+  - **Casillas:** un clic las conmuta.
+  - **Números** (enteros y decimales): clic para escribir (Enter confirma, Esc cancela, perder
+    el foco confirma; se acepta coma decimal) o **arrastrar horizontalmente** para ajustar en
+    vivo (400 px recorren todo el rango; con `Ctrl` o `Mayús`, ajuste fino ×0,1). Un arrastre
+    es un único paso de deshacer.
+  - **Vectores:** clic y escribir `1, 2, 3`.
+  - **Listas:** clic abre un menú. **Colores:** clic abre el selector. **Archivos:** clic abre
+    el diálogo de abrir/guardar.
+  - Los valores fuera de rango se recortan, un texto inválido avisa y no cambia nada, y las
+    entradas ya conectadas no se editan (su valor viene de otro nodo). Hacer clic en un campo
+    deja ese nodo como única selección. El panel de propiedades sigue disponible y se mantiene
+    sincronizado. Arrastrar el encabezado sigue moviendo el nodo.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Previsualización dentro del nodo, edición de valores dentro del nodo, preferencias**
-  (resto de la Fase 6). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
+- **Previsualización dentro del nodo, preferencias** (resto de la Fase 6). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
   copiar/pegar.
 
 Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
@@ -161,5 +174,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
    no destruye el proyecto abierto ni el archivo guardado anterior.
 10. Un frame agrupa y mueve sus nodos como un solo paso de deshacer, se redimensiona, se
     guarda y se reabre, y no cambia el resultado ni el script exportado.
-11. `pytest` pasa (314 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
-    persistencia, frames y UI real).
+11. Los valores se editan dentro del nodo (clic, texto, arrastre, menú, color, archivo) con
+    deshacer, sin mover el nodo y sin disparar atajos mientras se escribe.
+12. `pytest` pasa (360 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia, frames, edición en el nodo y UI real).

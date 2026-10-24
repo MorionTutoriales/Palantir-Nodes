@@ -26,6 +26,7 @@ class Colors:
     NODE_BORDER = "#121212"
     NODE_TEXT = "#E6E6E6"
     NODE_FIELD = "#3E3E3E"
+    NODE_FIELD_HOVER = "#4D4D4D"
     NODE_SELECTED = "#F5A623"
 
     LINK_VALID = "#5BD06A"

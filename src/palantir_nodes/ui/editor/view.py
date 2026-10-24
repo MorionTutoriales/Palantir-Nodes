@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QColorDialog, QGraphicsView, QInputDialog, QMenu
 from palantir_nodes.nodes.categories import get_category
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.ui.editor.controller import EditorController
+from palantir_nodes.ui.editor.field_editing import FieldEditor
 from palantir_nodes.ui.editor.frame_item import FrameItem
 from palantir_nodes.ui.editor.link_item import LinkItem
 from palantir_nodes.ui.editor.node_item import NodeItem
@@ -62,6 +63,7 @@ class NodeView(QGraphicsView):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.centerOn(0, 0)
         self._create_actions()
+        self.field_editor = FieldEditor(self)
 
     # -- acciones y atajos -------------------------------------------------------------
 
@@ -191,6 +193,7 @@ class NodeView(QGraphicsView):
     # -- zoom y desplazamiento ---------------------------------------------------------
 
     def wheelEvent(self, event) -> None:
+        self.field_editor.close_inline(commit=True)  # el editor en línea no sigue al zoom
         delta = event.angleDelta().y()
         if delta == 0:
             return
@@ -219,6 +222,7 @@ class NodeView(QGraphicsView):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
+            self.field_editor.close_inline(commit=True)
             self._panning = True
             self._pan_last = event.position()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
