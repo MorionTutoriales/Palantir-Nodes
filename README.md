@@ -59,12 +59,14 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   grafo se sigue calculando.
 - **Ejecución fuera del hilo de la interfaz** (`QThread`) sobre una copia del grafo. Si se
   piden varias ejecuciones mientras se procesa, se colapsan en una sola.
-- **40 nodos con procesamiento real:** entradas (Load Image, Number, Integer, Boolean,
-  Color), imagen (Grayscale, Gaussian/Median Blur, Threshold, Adaptive Threshold, Canny,
-  Resize, Crop, Rotate, Flip, HSV, InRange, Erode, Dilate, Morphological, Find/Draw
-  Contours), matemáticas (Add, Subtract, Multiply, Divide, Clamp, Map Range, Minimum,
-  Maximum, Compare), composición (Blend, Add Weighted, Bitwise AND/OR/NOT, Mask, Merge/Split
-  Channels) y salidas (Image Viewer, Save Image).
+- **45 nodos con procesamiento y exportación a Python:** los 44 de la especificación original
+  (una prueba comprueba la lista completa) más `Integer`. Entradas (Load Image, Load Video,
+  Webcam, Number, Integer, Boolean, Color), imagen (Grayscale, Gaussian/Median Blur,
+  Threshold, Adaptive Threshold, Canny, Resize, Crop, Rotate, Flip, HSV, InRange, Erode,
+  Dilate, Morphological, Find/Draw Contours), matemáticas (Add, Subtract, Multiply, Divide,
+  Clamp, Map Range, Minimum, Maximum, Compare), composición (Blend, Add Weighted, Bitwise
+  AND/OR/NOT, Mask, Merge/Split Channels) y salidas (Image Viewer, Video Viewer, Save Image,
+  Save Video).
 - **Visor de imágenes** con zoom (rueda), desplazamiento, doble clic para ajustar, resolución,
   canales y tiempos. Muestra el nodo seleccionado o, si no hay selección, el primer Image Viewer.
 - **Ejecución:** `F5` ejecuta; **Auto** (activado por defecto) re-ejecuta al cambiar el grafo.
@@ -157,9 +159,10 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Varios nodos de la especificación original** (p. ej. Add/Subtract entre imágenes, Convert
-  Color). El frame no se ajusta solo al tamaño de sus nodos ni se copia con
-  copiar/pegar.
+- **Frames:** no se ajustan solos al tamaño de sus nodos ni se copian con copiar/pegar.
+- **Nodos fuera de la especificación:** la biblioteca cubre todo lo que pedía la especificación;
+  nodos adicionales (p. ej. operaciones aritméticas entre imágenes o conversión de espacio de
+  color general) son ampliaciones opcionales.
 
 Todas las acciones de la barra superior funcionan.
 
@@ -201,5 +204,5 @@ Todas las acciones de la barra superior funcionan.
 12. Cada nodo con imagen muestra su miniatura tras ejecutar y en tiempo real; se puede
     desactivar y no se calcula si está desactivada.
 13. Las preferencias se guardan, se aplican al instante y un archivo dañado no impide arrancar.
-14. `pytest` pasa (414 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+14. `pytest` pasa (461 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias y UI real).
