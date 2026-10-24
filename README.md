@@ -31,7 +31,9 @@ py -3.13 -m venv .venv
 | `core/` | Grafo lógico, tipos de socket, validación, orden topológico, errores | No |
 | `nodes/` | Contrato `NodeDefinition`, especificaciones, registro, biblioteca | No |
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
+| `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
 | `ui/properties/` | Panel de propiedades y widgets por tipo de parámetro | Sí |
+| `ui/viewer/` | Visor de imágenes con zoom y desplazamiento | Sí |
 
 La interfaz nunca modifica el grafo directamente: `EditorController` empuja comandos
 (`QUndoCommand`) que cambian el `Graph`, y la escena se actualiza a partir de los eventos
@@ -40,33 +42,39 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fase 1 (editor visual)
+## Estado: Fases 1 a 3 (editor, motor y procesamiento de imágenes)
 
 ### Implementado
 
-- Ventana con tema oscuro, editor central y paneles acoplables (Visor y Propiedades).
-- Cuadrícula, zoom con la rueda (10 %–300 %) y desplazamiento con el botón central.
-- Menú contextual por categorías y buscador de nodos.
-- Conexiones Bézier arrastrando entre sockets en cualquier dirección, con vista previa
-  verde o roja y el motivo del rechazo en la barra de estado.
-- Validación de conexiones: entrada↔salida, tipos compatibles, conversiones explícitas,
-  sin ciclos, una conexión por entrada (se reemplaza al soltar otra).
-- Arrastrar desde una entrada conectada levanta la conexión; soltarla en vacío la elimina.
-- Selección múltiple, mover, duplicar, copiar/pegar, eliminar nodos y conexiones.
-- Deshacer/rehacer de todas las operaciones (los cambios seguidos de un mismo valor se
-  agrupan en un solo paso).
-- Panel de propiedades: números, deslizadores, casillas, listas, colores, vectores,
-  rutas de archivo y textos.
-- 19 tipos de nodo declarados (sockets y parámetros reales).
+- **Editor:** tema oscuro, cuadrícula, zoom, desplazamiento, menú y buscador de nodos,
+  conexiones Bézier validadas (tipos, ciclos, una por entrada), selección múltiple,
+  duplicar/copiar/pegar/eliminar y deshacer/rehacer de todo.
+- **Motor** (`engine/`, sin Qt): orden topológico, resultados entre nodos con conversiones
+  implícitas explícitas, caché por contenido (solo se recalculan los nodos afectados por
+  un cambio, incluida la fecha del archivo de imagen) y errores aislados por nodo: un
+  nodo que falla marca en rojo ese nodo y en ámbar los que dependen de él; el resto del
+  grafo se sigue calculando.
+- **Ejecución fuera del hilo de la interfaz** (`QThread`) sobre una copia del grafo. Si se
+  piden varias ejecuciones mientras se procesa, se colapsan en una sola.
+- **40 nodos con procesamiento real:** entradas (Load Image, Number, Integer, Boolean,
+  Color), imagen (Grayscale, Gaussian/Median Blur, Threshold, Adaptive Threshold, Canny,
+  Resize, Crop, Rotate, Flip, HSV, InRange, Erode, Dilate, Morphological, Find/Draw
+  Contours), matemáticas (Add, Subtract, Multiply, Divide, Clamp, Map Range, Minimum,
+  Maximum, Compare), composición (Blend, Add Weighted, Bitwise AND/OR/NOT, Mask, Merge/Split
+  Channels) y salidas (Image Viewer, Save Image).
+- **Visor de imágenes** con zoom (rueda), desplazamiento, doble clic para ajustar, resolución,
+  canales y tiempos. Muestra el nodo seleccionado o, si no hay selección, el primer Image Viewer.
+- **Ejecución:** `F5` ejecuta; **Auto** (activado por defecto) re-ejecuta al cambiar el grafo.
+  Save Image solo escribe en disco con `F5`, nunca en la ejecución automática.
 
 ### No implementado todavía
 
-- **Procesamiento de los nodos y visor** (Fase 3): los nodos no procesan nada todavía;
-  el panel de propiedades lo indica.
-- **Exportar a Python** (Fase 4), **video y tiempo real** (Fase 5).
+- **Exportar a Python** (Fase 4): los nodos aún no tienen `generate_code`.
+- **Video, webcam y tiempo real** (Fase 5): Load Video, Webcam, Video Viewer, Save Video,
+  Detener, FPS. El visor solo muestra imágenes estáticas.
 - **Guardar y abrir proyectos JSON**: pendiente.
-- **Frames/grupos visuales, edición de valores dentro del nodo, preferencias** (Fase 6).
-- El resto de la biblioteca de nodos de la especificación.
+- **Frames/grupos visuales, previsualización dentro del nodo, edición de valores dentro del
+  nodo, preferencias** (Fase 6).
 
 Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 
@@ -84,13 +92,13 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 | Encuadrar todo | `Inicio` |
 | Cancelar conexión en curso | `Esc` o clic derecho |
 
-### Criterios de aceptación de la Fase 1
+### Criterios de aceptación (Fases 1-3)
 
 1. `python -m palantir_nodes` abre la ventana sin errores.
-2. Se pueden crear nodos desde el menú y el buscador, moverlos, conectarlos y eliminarlos.
-3. Las conexiones inválidas (dos entradas, tipos incompatibles, ciclos) se rechazan y se
-   muestra el motivo.
-4. Deshacer y rehacer funcionan en crear, mover, conectar, reemplazar, eliminar, pegar y
-   editar valores.
-5. Los cambios en el panel de propiedades se reflejan en el nodo y viceversa (al deshacer).
-6. `pytest` pasa (78 pruebas: modelo, validación, comandos y UI con eventos reales).
+2. Se puede construir Load Image → Grayscale → Threshold → Find Contours → Draw Contours →
+   Image Viewer, y el visor muestra el resultado; cambiar un parámetro lo actualiza.
+3. Un nodo que falla (archivo inexistente, división entre cero…) se marca con su motivo y no
+   detiene el resto del grafo.
+4. Las conexiones inválidas se rechazan con su motivo; deshacer/rehacer funcionan.
+5. La interfaz sigue respondiendo mientras se procesa.
+6. `pytest` pasa (150 pruebas: modelo, validación, motor, nodos, comandos y UI real).

@@ -124,6 +124,15 @@ class NodeScene(QGraphicsScene):
         if item is not None:
             item.set_connected_inputs(self.graph.connected_inputs(node_id))
 
+    def apply_statuses(self, errors: dict[str, str], blocked: dict[str, str]) -> None:
+        for node_id, item in self.node_items.items():
+            if node_id in errors:
+                item.set_status("error", errors[node_id])
+            elif node_id in blocked:
+                item.set_status("blocked", blocked[node_id])
+            else:
+                item.set_status(None)
+
     def node_item_moved(self, node_id: str) -> None:
         for link_id in self._links_by_node.get(node_id, ()):
             item = self.link_items.get(link_id)

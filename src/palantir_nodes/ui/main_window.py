@@ -14,7 +14,8 @@ from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
 from palantir_nodes.ui.properties.panel import PropertiesPanel
-from palantir_nodes.ui.viewer_placeholder import ViewerPlaceholder
+from palantir_nodes.ui.run_controller import RunController
+from palantir_nodes.ui.viewer.panel import ViewerPanel
 
 APP_NAME = "Palantir Nodes"
 
@@ -23,7 +24,6 @@ _PENDING = {
     "open": ("Abrir proyecto…", "Ctrl+O", "Guardado/carga JSON: pendiente"),
     "save": ("Guardar", "Ctrl+S", "Guardado/carga JSON: pendiente"),
     "save_as": ("Guardar como…", "Ctrl+Shift+S", "Guardado/carga JSON: pendiente"),
-    "run": ("Ejecutar", "F5", "Motor de ejecución: Fase 3"),
     "stop": ("Detener", "Shift+F5", "Ejecución en tiempo real: Fase 5"),
     "export": ("Exportar Python…", "Ctrl+E", "Exportación a Python: Fase 4"),
     "prefs": ("Preferencias…", "", "Preferencias: pendiente"),
@@ -42,7 +42,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view)
 
         self.properties = PropertiesPanel(self.graph, self.controller)
-        self.viewer = ViewerPlaceholder()
+        self.viewer = ViewerPanel()
+        self.runner = RunController(self.graph, self)
+        self.last_result = None
         self.properties_dock = self._dock("Propiedades", self.properties, "properties")
         self.viewer_dock = self._dock("Visor", self.viewer, "viewer")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.viewer_dock)
@@ -56,6 +58,8 @@ class MainWindow(QMainWindow):
         self._create_statusbar()
 
         self.scene.selectionChanged.connect(self._on_selection_changed)
+        self.runner.started.connect(lambda: self.show_message("Procesando…", 0))
+        self.runner.finished.connect(self._on_run_finished)
         self.scene.status_message.connect(self.show_message)
         self.controller.status_message.connect(self.show_message)
         self.view.zoom_changed.connect(self._update_zoom_label)
@@ -86,6 +90,16 @@ class MainWindow(QMainWindow):
         self.action_new = QAction("Nuevo", self)
         self.action_new.setShortcut(QKeySequence("Ctrl+N"))
         self.action_new.triggered.connect(self.new_project)
+
+        self.action_run = QAction("Ejecutar", self)
+        self.action_run.setShortcut(QKeySequence("F5"))
+        self.action_run.setToolTip("Ejecutar el grafo (F5). Save Image solo escribe aquí.")
+        self.action_run.triggered.connect(lambda: self.runner.run(side_effects=True))
+        self.action_auto = QAction("Auto", self)
+        self.action_auto.setCheckable(True)
+        self.action_auto.setChecked(True)
+        self.action_auto.setToolTip("Ejecutar automáticamente al modificar el grafo")
+        self.action_auto.toggled.connect(self._set_auto_run)
 
         self.pending_actions: dict[str, QAction] = {}
         for key, (text, shortcut, reason) in _PENDING.items():
@@ -139,7 +153,8 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.viewer_dock.toggleViewAction())
 
         run_menu = bar.addMenu("E&jecución")
-        run_menu.addAction(p["run"])
+        run_menu.addAction(self.action_run)
+        run_menu.addAction(self.action_auto)
         run_menu.addAction(p["stop"])
 
     def _create_toolbar(self) -> None:
@@ -153,7 +168,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(p["save"])
         toolbar.addAction(p["save_as"])
         toolbar.addSeparator()
-        toolbar.addAction(p["run"])
+        toolbar.addAction(self.action_run)
+        toolbar.addAction(self.action_auto)
         toolbar.addAction(p["stop"])
         toolbar.addSeparator()
         toolbar.addAction(p["export"])
@@ -193,6 +209,58 @@ class MainWindow(QMainWindow):
         # La escena emite selectionChanged también mientras se destruye.
         if shiboken6.isValid(self.scene) and shiboken6.isValid(self.properties):
             self.properties.show_selection(self.scene.selected_node_ids())
+            self._update_viewer()
+
+    def _set_auto_run(self, enabled: bool) -> None:
+        self.runner.auto_run = enabled
+        self.show_message("Ejecución automática " + ("activada" if enabled else "desactivada"))
+        if enabled:
+            self.runner.run(side_effects=False)
+
+    def _on_run_finished(self, result) -> None:
+        self.last_result = result
+        self.scene.apply_statuses(result.errors, result.blocked)
+        self.properties.set_statuses(result.errors, result.blocked)
+        failed = len(result.errors)
+        summary = f"{len(result.computed)} calculados · {len(result.cached)} en caché"
+        if failed:
+            summary += f" · {failed} con error"
+        self.show_message(f"Ejecutado en {result.total_ms:.1f} ms — {summary}", 6000)
+        if "__engine__" in result.errors:
+            self.show_message(result.errors["__engine__"], 10000)
+        self._update_viewer()
+
+    def _viewer_target(self) -> str | None:
+        """Nodo cuya imagen se muestra: el seleccionado, o el primer Image Viewer."""
+        selected = self.scene.selected_node_ids()
+        if len(selected) == 1:
+            return selected[0]
+        for node_id, node in self.graph.nodes.items():
+            if node.type_id == "output.image_viewer":
+                return node_id
+        return None
+
+    def _update_viewer(self) -> None:
+        result = self.last_result
+        node_id = self._viewer_target()
+        if result is None or node_id is None or node_id not in self.graph.nodes:
+            self.viewer.show_message(
+                "Añade un Image Viewer o selecciona un nodo\ny pulsa Ejecutar."
+            )
+            return
+        label = self.graph.node(node_id).definition.label
+        if node_id in result.errors:
+            self.viewer.show_message(result.errors[node_id], error=True, source=label)
+        elif node_id in result.blocked:
+            self.viewer.show_message(result.blocked[node_id], error=True, source=label)
+        elif node_id in result.images:
+            self.viewer.show_image(
+                result.images[node_id], label, result.times_ms.get(node_id), result.total_ms
+            )
+        elif node_id in result.outputs:
+            self.viewer.show_message("Este nodo no produce una imagen.", source=label)
+        else:
+            self.viewer.show_message("Pulsa Ejecutar para procesar el grafo.", source=label)
 
     def _confirm_discard(self) -> bool:
         if self.undo_stack.isClean():
@@ -216,6 +284,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._confirm_discard():
             self.scene.selectionChanged.disconnect(self._on_selection_changed)
+            self.runner.shutdown()
             event.accept()
         else:
             event.ignore()

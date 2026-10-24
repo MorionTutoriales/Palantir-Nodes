@@ -56,7 +56,8 @@ class NodeItem(QGraphicsItem):
         self._font = QFont()
         self._font.setPointSizeF(8.5)
         self._connected: set[str] = set()
-        self.error: str | None = None
+        self.status: str | None = None
+        self.status_message = ""
 
         self.input_sockets: dict[str, SocketItem] = {}
         self.output_sockets: dict[str, SocketItem] = {}
@@ -97,6 +98,15 @@ class NodeItem(QGraphicsItem):
     def refresh(self) -> None:
         self.update()
 
+    def set_status(self, kind: str | None, message: str = "") -> None:
+        """``kind``: ``"error"`` (falló), ``"blocked"`` (depende de uno que falló) o ``None``."""
+        if (kind, message) == (self.status, self.status_message):
+            return
+        self.status, self.status_message = kind, message
+        base = self.definition.description or self.definition.label
+        self.setToolTip(f"{base}\n\n⚠ {message}" if kind else base)
+        self.update()
+
     # -- geometría ---------------------------------------------------------------------
 
     def boundingRect(self) -> QRectF:
@@ -123,8 +133,8 @@ class NodeItem(QGraphicsItem):
         painter.fillRect(QRectF(0, 0, self.WIDTH, self.HEADER), self._header_color)
         painter.restore()
 
-        if self.error:
-            pen = QPen(QColor(Colors.LINK_INVALID), 2.0)
+        if self.status == "error":
+            pen = QPen(QColor(Colors.LINK_INVALID), 2.4)
         elif selected:
             pen = QPen(QColor(Colors.NODE_SELECTED), 1.8)
         else:
@@ -132,6 +142,16 @@ class NodeItem(QGraphicsItem):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(body)
+        if self.status == "blocked":
+            painter.setPen(QPen(QColor("#B8862B"), 1.6, Qt.PenStyle.DashLine))
+            painter.drawPath(body)
+        if self.status:
+            badge = QRectF(self.WIDTH - 20, 4, 16, 16)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(Colors.LINK_INVALID if self.status == "error" else "#B8862B"))
+            painter.drawEllipse(badge)
+            painter.setPen(QColor("#FFFFFF"))
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "!")
 
         painter.setFont(self._title_font)
         painter.setPen(QColor(Colors.NODE_TEXT))

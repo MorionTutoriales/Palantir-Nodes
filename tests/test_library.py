@@ -10,8 +10,7 @@ def test_builtin_library_loads_and_is_valid():
         assert cls.category in known, cls.type_id
         cls.default_params()
         cls.default_input_values()
-        # En la Fase 1 ningún nodo finge procesar.
-        assert not cls.is_implemented()
+        assert cls.is_implemented(), cls.type_id
 
 
 def test_registry_search_prefers_label_prefix():

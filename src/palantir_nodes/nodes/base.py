@@ -44,6 +44,13 @@ class NodeDefinition:
     imports: ClassVar[frozenset[str]] = frozenset()
     # Los nodos fuente producen fotogramas (video, cámara) y marcan el modo tiempo real.
     is_source: ClassVar[bool] = False
+    # Los nodos con efectos externos (escribir archivos) no se reutilizan desde la caché.
+    cacheable: ClassVar[bool] = True
+
+    @classmethod
+    def cache_key_extra(cls, params: dict[str, Any]) -> Any:
+        """Datos externos que invalidan la caché (p. ej. la fecha de un archivo)."""
+        return ()
 
     @classmethod
     def input(cls, name: str) -> InputSpec | None:

@@ -1,8 +1,13 @@
 """Nodos de salida."""
 
+import os
+
+import cv2
+
 from palantir_nodes.core.types import SocketType as T
 from palantir_nodes.nodes.base import NodeDefinition
 from palantir_nodes.nodes.categories import OUTPUT
+from palantir_nodes.nodes.library._cv import image_in
 from palantir_nodes.nodes.registry import register_node
 from palantir_nodes.nodes.specs import InputSpec, ParamKind, ParamSpec
 
@@ -15,13 +20,18 @@ class ImageViewer(NodeDefinition):
     description = "Muestra la imagen en el visor de resultados."
     inputs = (InputSpec("image", T.IMAGE),)
 
+    def process(self, ctx, inputs, params):
+        image_in(inputs["image"])  # valida; el visor lee la entrada desde el resultado
+        return {}
+
 
 @register_node
 class SaveImage(NodeDefinition):
     type_id = "output.save_image"
     label = "Save Image"
     category = OUTPUT
-    description = "Guarda la imagen en disco."
+    description = "Guarda la imagen en disco al pulsar Ejecutar (no en la ejecución automática)."
+    cacheable = False
     inputs = (InputSpec("image", T.IMAGE),)
     params = (
         ParamSpec(
@@ -33,3 +43,25 @@ class SaveImage(NodeDefinition):
             file_filter="PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos (*)",
         ),
     )
+
+    def process(self, ctx, inputs, params):
+        img = image_in(inputs["image"])
+        if not ctx.side_effects:
+            return {}
+        path = params["path"]
+        if not path:
+            raise ValueError("No se ha indicado el archivo de destino")
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:
+            raise ValueError("El archivo de destino necesita extensión (.png, .jpg…)")
+        try:
+            ok, buffer = cv2.imencode(ext, img)
+        except cv2.error as exc:
+            raise ValueError(f"Formato no soportado: {ext}") from exc
+        if not ok:
+            raise ValueError(f"No se pudo codificar la imagen como {ext}")
+        try:
+            buffer.tofile(path)
+        except OSError as exc:
+            raise ValueError(f"No se pudo escribir '{path}': {exc.strerror or exc}") from exc
+        return {}

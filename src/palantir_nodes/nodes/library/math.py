@@ -1,10 +1,22 @@
 """Nodos matemáticos."""
 
+import operator
+
 from palantir_nodes.core.types import SocketType as T
 from palantir_nodes.nodes.base import NodeDefinition
 from palantir_nodes.nodes.categories import MATH
 from palantir_nodes.nodes.registry import register_node
-from palantir_nodes.nodes.specs import InputSpec, OutputSpec
+from palantir_nodes.nodes.specs import InputSpec, OutputSpec, ParamKind, ParamSpec
+
+
+def _ab(default_a: float = 0.0, default_b: float = 0.0) -> tuple[InputSpec, InputSpec]:
+    return (
+        InputSpec("a", T.FLOAT, "A", default=default_a),
+        InputSpec("b", T.FLOAT, "B", default=default_b),
+    )
+
+
+_RESULT = (OutputSpec("result", T.FLOAT, "Resultado"),)
 
 
 @register_node
@@ -13,8 +25,24 @@ class Add(NodeDefinition):
     label = "Add"
     category = MATH
     description = "A + B"
-    inputs = (InputSpec("a", T.FLOAT, "A", default=0.0), InputSpec("b", T.FLOAT, "B", default=0.0))
-    outputs = (OutputSpec("result", T.FLOAT, "Resultado"),)
+    inputs = _ab()
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        return {"result": inputs["a"] + inputs["b"]}
+
+
+@register_node
+class Subtract(NodeDefinition):
+    type_id = "math.subtract"
+    label = "Subtract"
+    category = MATH
+    description = "A − B"
+    inputs = _ab()
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        return {"result": inputs["a"] - inputs["b"]}
 
 
 @register_node
@@ -23,8 +51,26 @@ class Multiply(NodeDefinition):
     label = "Multiply"
     category = MATH
     description = "A × B"
-    inputs = (InputSpec("a", T.FLOAT, "A", default=1.0), InputSpec("b", T.FLOAT, "B", default=1.0))
-    outputs = (OutputSpec("result", T.FLOAT, "Resultado"),)
+    inputs = _ab(1.0, 1.0)
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        return {"result": inputs["a"] * inputs["b"]}
+
+
+@register_node
+class Divide(NodeDefinition):
+    type_id = "math.divide"
+    label = "Divide"
+    category = MATH
+    description = "A ÷ B"
+    inputs = _ab(1.0, 1.0)
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        if inputs["b"] == 0:
+            raise ValueError("División entre cero")
+        return {"result": inputs["a"] / inputs["b"]}
 
 
 @register_node
@@ -38,7 +84,13 @@ class Clamp(NodeDefinition):
         InputSpec("min", T.FLOAT, "Mín", default=0.0),
         InputSpec("max", T.FLOAT, "Máx", default=1.0),
     )
-    outputs = (OutputSpec("result", T.FLOAT, "Resultado"),)
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        low, high = inputs["min"], inputs["max"]
+        if low > high:
+            raise ValueError(f"El mínimo ({low}) es mayor que el máximo ({high})")
+        return {"result": min(max(inputs["value"], low), high)}
 
 
 @register_node
@@ -54,4 +106,79 @@ class MapRange(NodeDefinition):
         InputSpec("to_min", T.FLOAT, "Hacia mín", default=0.0),
         InputSpec("to_max", T.FLOAT, "Hacia máx", default=255.0),
     )
-    outputs = (OutputSpec("result", T.FLOAT, "Resultado"),)
+    outputs = _RESULT
+    params = (ParamSpec("clamp", ParamKind.BOOL, False, label="Limitar al rango"),)
+
+    def process(self, ctx, inputs, params):
+        span = inputs["from_max"] - inputs["from_min"]
+        if span == 0:
+            raise ValueError("El rango de origen tiene longitud cero")
+        t = (inputs["value"] - inputs["from_min"]) / span
+        if params["clamp"]:
+            t = min(max(t, 0.0), 1.0)
+        return {"result": inputs["to_min"] + t * (inputs["to_max"] - inputs["to_min"])}
+
+
+@register_node
+class Minimum(NodeDefinition):
+    type_id = "math.minimum"
+    label = "Minimum"
+    category = MATH
+    description = "El menor de A y B."
+    inputs = _ab()
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        return {"result": min(inputs["a"], inputs["b"])}
+
+
+@register_node
+class Maximum(NodeDefinition):
+    type_id = "math.maximum"
+    label = "Maximum"
+    category = MATH
+    description = "El mayor de A y B."
+    inputs = _ab()
+    outputs = _RESULT
+
+    def process(self, ctx, inputs, params):
+        return {"result": max(inputs["a"], inputs["b"])}
+
+
+_COMPARISONS = {
+    "gt": operator.gt,
+    "ge": operator.ge,
+    "lt": operator.lt,
+    "le": operator.le,
+    "eq": operator.eq,
+    "ne": operator.ne,
+}
+
+
+@register_node
+class Compare(NodeDefinition):
+    type_id = "math.compare"
+    label = "Compare"
+    category = MATH
+    description = "Compara A con B."
+    inputs = _ab()
+    outputs = (OutputSpec("result", T.BOOLEAN, "Resultado"),)
+    params = (
+        ParamSpec(
+            "op",
+            ParamKind.ENUM,
+            "gt",
+            label="Operación",
+            options=(
+                ("gt", "A > B"),
+                ("ge", "A ≥ B"),
+                ("lt", "A < B"),
+                ("le", "A ≤ B"),
+                ("eq", "A = B"),
+                ("ne", "A ≠ B"),
+            ),
+        ),
+    )
+
+    def process(self, ctx, inputs, params):
+        return {"result": bool(_COMPARISONS[params["op"]](inputs["a"], inputs["b"]))}

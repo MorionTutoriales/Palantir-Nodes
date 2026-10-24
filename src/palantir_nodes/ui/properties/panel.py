@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -28,6 +30,8 @@ class PropertiesPanel(QWidget):
         self._param_widgets: dict[str, ValueWidget] = {}
         self._input_widgets: dict[str, ValueWidget] = {}
         self._input_labels: dict[str, QLabel] = {}
+        self._statuses: dict[str, tuple[str, str]] = {}
+        self._status_label: QLabel | None = None
 
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
@@ -45,6 +49,7 @@ class PropertiesPanel(QWidget):
         self._param_widgets.clear()
         self._input_widgets.clear()
         self._input_labels.clear()
+        self._status_label = None
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -70,8 +75,7 @@ class PropertiesPanel(QWidget):
         color = get_category(definition.category).color
         title = QLabel(definition.label)
         title.setStyleSheet(
-            "font-size: 11pt; font-weight: bold; padding-left: 6px;"
-            f"border-left: 4px solid {color};"
+            f"font-size: 11pt; font-weight: bold; padding-left: 6px;border-left: 4px solid {color};"
         )
         layout.addWidget(title)
         meta = QLabel(f"{definition.category} · {definition.type_id}")
@@ -82,10 +86,15 @@ class PropertiesPanel(QWidget):
             desc.setWordWrap(True)
             layout.addWidget(desc)
         if not definition.is_implemented():
-            pending = QLabel("Procesamiento aún no implementado (llega en la Fase 3).")
+            pending = QLabel("Este nodo todavía no tiene procesamiento implementado.")
             pending.setWordWrap(True)
             pending.setStyleSheet("color: #D9A441;")
             layout.addWidget(pending)
+
+        self._status_label = QLabel()
+        self._status_label.setWordWrap(True)
+        layout.addWidget(self._status_label)
+        self._refresh_status()
 
         if definition.params:
             box = QGroupBox("Parámetros")
@@ -134,6 +143,27 @@ class PropertiesPanel(QWidget):
         )
         widget.setTextFormat(Qt.TextFormat.RichText)
         return widget
+
+    def set_statuses(self, errors: dict[str, str], blocked: dict[str, str]) -> None:
+        """Errores de la última ejecución; actualiza sin reconstruir el panel (no roba el foco)."""
+        self._statuses = {n: ("error", m) for n, m in errors.items()}
+        self._statuses.update({n: ("blocked", m) for n, m in blocked.items()})
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        label = self._status_label
+        if label is None:
+            return
+        kind, message = self._statuses.get(self.node_id, ("", ""))
+        if not kind:
+            label.hide()
+            return
+        color = Colors.LINK_INVALID if kind == "error" else "#D9A441"
+        title = "Error" if kind == "error" else "Bloqueado"
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setText(f"<b>{title}:</b> {html.escape(message)}")
+        label.setStyleSheet(f"color: {color};")
+        label.show()
 
     def _refresh_connected(self) -> None:
         if self.node_id is None:

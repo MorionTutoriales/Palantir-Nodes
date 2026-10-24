@@ -185,3 +185,94 @@ def test_view_has_no_unused_point(window):
     assert out.modifiers() & Qt.KeyboardModifier.ControlModifier
     assert not out.modifiers() & Qt.KeyboardModifier.ShiftModifier
     assert out.position().toPoint() == QPoint(5, 5)
+
+
+# -- ejecución real con el visor ---------------------------------------------------------
+
+
+@pytest.fixture
+def real_window(qtbot, tmp_path):
+    import cv2
+    import numpy as np
+
+    from palantir_nodes.nodes.registry import load_builtin_nodes
+
+    win = MainWindow(load_builtin_nodes())
+    win._confirm_discard = lambda: True
+    qtbot.addWidget(win)
+    win.show()
+    qtbot.waitExposed(win)
+    img = np.zeros((30, 40, 3), np.uint8)
+    img[5:20, 5:25] = (10, 200, 90)
+    path = tmp_path / "test.png"
+    ok, buf = cv2.imencode(".png", img)
+    buf.tofile(str(path))
+    win.image_path = str(path)
+    return win
+
+
+def build_chain(win):
+    ctl = win.controller
+    load = ctl.add_node("input.load_image", (-400, 0))
+    gray = ctl.add_node("image.grayscale", (-150, 0))
+    view = ctl.add_node("output.image_viewer", (100, 0))
+    ctl.connect(load, "image", gray, "image")
+    ctl.connect(gray, "image", view, "image")
+    return load, gray, view
+
+
+def test_run_shows_image_and_reports_errors_on_nodes(qtbot, real_window):
+    win = real_window
+    load, gray, view = build_chain(win)
+    win.runner.auto_run = False
+
+    with qtbot.waitSignal(win.runner.finished, timeout=5000):
+        win.runner.run()
+    assert win.scene.node_items[load].status == "error"  # sin archivo
+    assert win.scene.node_items[gray].status == "blocked"
+    assert win.viewer.stack.currentWidget() is win.viewer.message
+    assert "ningún archivo" in win.properties._statuses[load][1]
+
+    win.controller.set_param(load, "path", win.image_path)
+    with qtbot.waitSignal(win.runner.finished, timeout=5000):
+        win.runner.run()
+    assert all(i.status is None for i in win.scene.node_items.values())
+    assert win.viewer.stack.currentWidget() is win.viewer.canvas
+    assert "40×30" in win.viewer.info.text()
+
+
+def test_auto_run_after_param_change_and_selected_node_view(qtbot, real_window):
+    win = real_window
+    load, gray, view = build_chain(win)
+    win.controller.set_param(load, "path", win.image_path)
+    qtbot.waitUntil(lambda: win.last_result is not None and win.last_result.ok, timeout=5000)
+
+    win.scene.select_nodes([load])  # el visor sigue al nodo seleccionado
+    assert win.viewer.source.text() == "Load Image"
+    assert "3 canales" in win.viewer.info.text()
+    win.scene.select_nodes([gray])
+    assert "1 canal" in win.viewer.info.text()
+
+
+def test_rapid_requests_collapse_and_never_pile_up(qtbot, real_window):
+    win = real_window
+    build_chain(win)
+    win.runner.auto_run = False
+    count = []
+    win.runner.finished.connect(lambda r: count.append(1))
+    for _ in range(25):
+        win.runner.run()
+    qtbot.waitUntil(lambda: len(count) >= 2 and not win.runner.busy, timeout=5000)
+    qtbot.wait(100)
+    assert len(count) == 2  # la primera y una única repetición con el estado final
+
+
+def test_editing_while_running_does_not_break(qtbot, real_window):
+    win = real_window
+    load, gray, view = build_chain(win)
+    win.controller.set_param(load, "path", win.image_path)
+    for ksize in range(1, 12, 2):
+        n = win.controller.add_node("image.gaussian_blur", (0, 200))
+        win.controller.set_param(n, "ksize", ksize)
+    qtbot.waitUntil(lambda: win.last_result is not None and not win.runner.busy, timeout=5000)
+    assert "__engine__" not in win.last_result.errors
