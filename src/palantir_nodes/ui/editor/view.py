@@ -127,6 +127,18 @@ class NodeView(QGraphicsView):
             local = self.viewport().rect().center()
         return self.viewport().mapToGlobal(local), self.mapToScene(local)
 
+    def state(self) -> dict:
+        """Zoom y punto central actuales (para guardarlos en el proyecto)."""
+        center = self.mapToScene(self.viewport().rect().center())
+        return {"zoom": self.zoom, "center": (center.x(), center.y())}
+
+    def restore_state(self, zoom: float, center: tuple[float, float]) -> None:
+        zoom = max(ZOOM_MIN, min(ZOOM_MAX, zoom))
+        self.resetTransform()
+        self.scale(zoom, zoom)
+        self.centerOn(center[0], center[1])
+        self.zoom_changed.emit(self.zoom)
+
     def frame_all(self) -> None:
         rect = self.scene().itemsBoundingRect()
         if rect.isEmpty():

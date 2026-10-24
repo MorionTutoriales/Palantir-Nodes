@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import shiboken6
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoStack
@@ -19,6 +21,14 @@ from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.nodes.registry import NodeRegistry
+from palantir_nodes.persistence import (
+    ProjectData,
+    ProjectFormatError,
+    dump,
+    load,
+    read_project,
+    write_project,
+)
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
@@ -30,11 +40,11 @@ APP_NAME = "Palantir Nodes"
 
 # Acciones de la barra superior que todavía no tienen implementación real.
 _PENDING = {
-    "open": ("Abrir proyecto…", "Ctrl+O", "Guardado/carga JSON: pendiente"),
-    "save": ("Guardar", "Ctrl+S", "Guardado/carga JSON: pendiente"),
-    "save_as": ("Guardar como…", "Ctrl+Shift+S", "Guardado/carga JSON: pendiente"),
     "prefs": ("Preferencias…", "", "Preferencias: pendiente"),
 }
+
+PROJECT_FILTER = "Proyecto de Palantir Nodes (*.json);;Todos los archivos (*)"
+MAX_WARNINGS_SHOWN = 12
 
 
 class MainWindow(QMainWindow):
@@ -52,6 +62,8 @@ class MainWindow(QMainWindow):
         self.viewer = ViewerPanel()
         self.runner = RunController(self.graph, self)
         self.last_result = None
+        self.project = ProjectData()
+        self.project_path: Path | None = None
         self.properties_dock = self._dock("Propiedades", self.properties, "properties")
         self.viewer_dock = self._dock("Visor", self.viewer, "viewer")
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.viewer_dock)
@@ -99,6 +111,16 @@ class MainWindow(QMainWindow):
         self.action_new = QAction("Nuevo", self)
         self.action_new.setShortcut(QKeySequence("Ctrl+N"))
         self.action_new.triggered.connect(self.new_project)
+
+        self.action_open = QAction("Abrir proyecto…", self)
+        self.action_open.setShortcut(QKeySequence("Ctrl+O"))
+        self.action_open.triggered.connect(self.open_project)
+        self.action_save = QAction("Guardar", self)
+        self.action_save.setShortcut(QKeySequence("Ctrl+S"))
+        self.action_save.triggered.connect(self.save_project)
+        self.action_save_as = QAction("Guardar como…", self)
+        self.action_save_as.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.action_save_as.triggered.connect(self.save_project_as)
 
         self.action_run = QAction("Ejecutar", self)
         self.action_run.setShortcut(QKeySequence("F5"))
@@ -152,10 +174,10 @@ class MainWindow(QMainWindow):
         p = self.pending_actions
         file_menu = bar.addMenu("&Archivo")
         file_menu.addAction(self.action_new)
-        file_menu.addAction(p["open"])
+        file_menu.addAction(self.action_open)
         file_menu.addSeparator()
-        file_menu.addAction(p["save"])
-        file_menu.addAction(p["save_as"])
+        file_menu.addAction(self.action_save)
+        file_menu.addAction(self.action_save_as)
         file_menu.addSeparator()
         file_menu.addAction(self.action_export)
         file_menu.addSeparator()
@@ -192,9 +214,9 @@ class MainWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         p = self.pending_actions
         toolbar.addAction(self.action_new)
-        toolbar.addAction(p["open"])
-        toolbar.addAction(p["save"])
-        toolbar.addAction(p["save_as"])
+        toolbar.addAction(self.action_open)
+        toolbar.addAction(self.action_save)
+        toolbar.addAction(self.action_save_as)
         toolbar.addSeparator()
         toolbar.addAction(self.action_run)
         toolbar.addAction(self.action_auto)
@@ -219,9 +241,13 @@ class MainWindow(QMainWindow):
     def show_message(self, text: str, timeout: int = 4000) -> None:
         self.statusBar().showMessage(text, timeout)
 
+    @property
+    def project_name(self) -> str:
+        return self.project_path.stem if self.project_path else "Sin título"
+
     def _update_title(self, *_) -> None:
         dirty = "" if self.undo_stack.isClean() else " *"
-        self.setWindowTitle(f"Sin título{dirty} — {APP_NAME} {__version__}")
+        self.setWindowTitle(f"{self.project_name}{dirty} — {APP_NAME} {__version__}")
 
     def _update_zoom_label(self, zoom: float) -> None:
         self._zoom_label.setText(f"Zoom {zoom * 100:.0f}%")
@@ -326,15 +352,103 @@ class MainWindow(QMainWindow):
     def _confirm_discard(self) -> bool:
         if self.undo_stack.isClean():
             return True
+        buttons = QMessageBox.StandardButton
         answer = QMessageBox.question(
             self,
             APP_NAME,
-            "Hay cambios sin guardar y el guardado de proyectos aún no está disponible.\n"
-            "¿Descartar los cambios?",
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            f"«{self.project_name}» tiene cambios sin guardar.\n¿Quieres guardarlos?",
+            buttons.Save | buttons.Discard | buttons.Cancel,
+            buttons.Save,
         )
-        return answer == QMessageBox.StandardButton.Discard
+        if answer == buttons.Save:
+            return self.save_project()
+        return answer == buttons.Discard
+
+    # -- proyectos ---------------------------------------------------------------------
+
+    def _start_dir(self) -> str:
+        return str(self.project_path.parent) if self.project_path else str(Path.home())
+
+    def save_project(self) -> bool:
+        """Guarda en el archivo actual (pregunta dónde si es nuevo). ``False`` si no se guardó."""
+        if self.project_path is None:
+            return self.save_project_as()
+        return self._write_project(self.project_path)
+
+    def save_project_as(self) -> bool:
+        default = str(Path(self._start_dir()) / f"{self.project_name}.json")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar proyecto", default, PROJECT_FILTER)
+        if not path:
+            return False
+        target = Path(path)
+        if not target.suffix:
+            target = target.with_suffix(".json")
+        return self._write_project(target)
+
+    def _write_project(self, path: Path) -> bool:
+        state = self.view.state()
+        self.project.name = path.stem
+        self.project.auto_run = self.runner.auto_run
+        self.project.zoom = state["zoom"]
+        self.project.center = tuple(state["center"])
+        try:
+            write_project(path, dump(self.graph, self.project, __version__))
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, APP_NAME, f"No se pudo guardar el proyecto:\n{exc}")
+            return False
+        self.project_path = path
+        self.undo_stack.setClean()
+        self._update_title()
+        self.show_message(f"Guardado en {path}", 5000)
+        return True
+
+    def open_project(self) -> None:
+        if not self._confirm_discard():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Abrir proyecto", self._start_dir(), PROJECT_FILTER
+        )
+        if path:
+            self.load_project(Path(path))
+
+    def load_project(self, path: Path) -> bool:
+        """Carga un proyecto, reemplazando el actual. Si falla, el actual no se toca."""
+        try:
+            loaded, project = load(read_project(path), self.registry)
+        except ProjectFormatError as exc:
+            QMessageBox.critical(self, APP_NAME, f"No se pudo abrir '{Path(path).name}':\n{exc}")
+            return False
+
+        self.runner.stop_realtime(wait=True)
+        self.runner.auto_run = False  # evita una ejecución por cada nodo añadido
+        self.controller.new_graph()
+        for node in loaded.nodes.values():
+            self.graph.add_node_from_dict(node.to_dict())
+        for link in loaded.links.values():
+            self.graph.add_link_object(link)
+
+        self.project, self.project_path = project, Path(path)
+        self.last_result = None
+        self.undo_stack.setClean()
+        self.view.restore_state(project.zoom, project.center)
+        self.action_auto.blockSignals(True)
+        self.action_auto.setChecked(project.auto_run)
+        self.action_auto.blockSignals(False)
+        self.runner.auto_run = project.auto_run
+        if project.auto_run:
+            self.runner.run(side_effects=False)
+        self._update_viewer()
+        self._update_title()
+        self._update_counts()
+        self.show_message(f"Abierto {path}", 5000)
+        if project.warnings:
+            shown = project.warnings[:MAX_WARNINGS_SHOWN]
+            extra = len(project.warnings) - len(shown)
+            text = "\n".join(f"• {w}" for w in shown)
+            if extra > 0:
+                text += f"\n… y {extra} aviso(s) más"
+            QMessageBox.warning(self, APP_NAME, f"El proyecto se abrió con avisos:\n\n{text}")
+        return True
 
     def export_python(self) -> None:
         try:
@@ -359,8 +473,15 @@ class MainWindow(QMainWindow):
 
     def new_project(self) -> None:
         if self._confirm_discard():
+            self.runner.stop_realtime(wait=True)
             self.controller.new_graph()
+            self.project, self.project_path = ProjectData(), None
+            self.project.auto_run = self.runner.auto_run
+            self.last_result = None
+            self.undo_stack.setClean()
             self.view.frame_all()
+            self._update_viewer()
+            self._update_title()
             self.show_message("Proyecto nuevo")
 
     def closeEvent(self, event: QCloseEvent) -> None:

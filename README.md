@@ -33,6 +33,7 @@ py -3.13 -m venv .venv
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
 | `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
 | `media/` | Apertura y lectura de video, cámaras y escritores (compartido con el script exportado) | No |
+| `persistence/` | Formato JSON versionado, validación, migraciones y lectura/escritura atómica | No |
 | `codegen/` | Generador de scripts Python y helpers compartidos con el motor | No |
 | `ui/properties/` | Panel de propiedades y widgets por tipo de parámetro | Sí |
 | `ui/viewer/` | Visor de imágenes con zoom y desplazamiento | Sí |
@@ -44,7 +45,7 @@ del grafo.
 Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@register_node`
 (o publícala como plugin en el grupo de entry points `palantir_nodes.nodes`).
 
-## Estado: Fases 1 a 5 (editor, motor, procesamiento, exportación y tiempo real)
+## Estado: Fases 1 a 5 y guardado de proyectos (Fase 6, parte 1)
 
 ### Implementado
 
@@ -89,15 +90,30 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   `--no-show`, `q` cierra las ventanas), abre los recursos antes del bucle y los libera en
   `finally`. Un error indica el nodo que falló.
 
+- **Proyectos JSON** (`Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`; también `python -m palantir_nodes proyecto.json`):
+  guarda versión del formato, nodos (id, tipo, posición, parámetros, valores de entradas),
+  conexiones, zoom y centro del editor, y el estado de Auto. El título muestra el nombre y `*`
+  si hay cambios; al cerrar o crear un proyecto nuevo pregunta si guardar.
+  - **Escritura atómica:** se escribe a un temporal y se renombra; un fallo (disco lleno, dato
+    inválido) deja intacto el archivo anterior.
+  - **Validación:** un archivo ilegible, vacío, que no sea JSON, que no sea de Palantir Nodes o
+    de una versión más nueva se rechaza con un mensaje claro y **el proyecto actual no se toca**.
+  - **Tolerancia:** parámetros inválidos vuelven a su valor por defecto, y nodos o conexiones
+    inválidos se omiten; todo se informa en un diálogo de avisos.
+  - **Nodos desconocidos** (p. ej. de un plugin no instalado): no se muestran, pero se conservan
+    y se vuelven a escribir al guardar, para no perder información.
+  - **Migraciones:** `persistence/format.py` tiene la tabla `MIGRATIONS` (v N → v N+1) para
+    cuando cambie el formato.
+  - Las rutas de archivos de imagen/video se guardan tal cual (absolutas si así se eligieron).
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
   iteración; el tipo `Video` como flujo completo no se usa todavía.
 - **Webcam probada solo con simulación:** no hay cámara en el entorno de pruebas; la lectura
   de archivos de video sí está verificada de punta a punta.
-- **Guardar y abrir proyectos JSON**: pendiente.
 - **Frames/grupos visuales, previsualización dentro del nodo, edición de valores dentro del
-  nodo, preferencias** (Fase 6).
+  nodo, preferencias** (resto de la Fase 6).
 
 Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 
@@ -129,4 +145,7 @@ Las acciones de la barra superior que aún no funcionan aparecen deshabilitadas.
 7. Load Video → nodos → Video Viewer reproduce a la velocidad del archivo con FPS, se puede
    pausar y detener, y la interfaz sigue respondiendo.
 8. Tras detener, terminar o cerrar, el archivo de video puede borrarse (no queda abierto).
-9. `pytest` pasa (231 pruebas: modelo, validación, motor, nodos, exportación, tiempo real y UI real).
+9. Guardar y reabrir un proyecto reproduce el mismo grafo, zoom y posición; un archivo dañado
+   no destruye el proyecto abierto ni el archivo guardado anterior.
+10. `pytest` pasa (278 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia y UI real).

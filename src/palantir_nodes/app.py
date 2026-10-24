@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
@@ -22,6 +23,10 @@ def main(argv: list[str] | None = None) -> int:
 
     window = MainWindow(registry, startup_messages=messages)
     window.show()
+    # python -m palantir_nodes proyecto.json
+    paths = [a for a in app.arguments()[1:] if not a.startswith("-")]
+    if paths:
+        window.load_project(Path(paths[0]))
     return app.exec()
 
 
