@@ -706,3 +706,103 @@ def test_dialog_runs_the_install_steps_in_order_and_stops_at_the_first_failure(q
     qtbot.waitUntil(lambda: dialog._process is None, timeout=20000)
     text = dialog.log.toPlainText()
     assert text.count("$ ") == 1 and "código 2" in text and "absl-py" not in text.split("$ ", 1)[1]
+
+
+# -- Detections to JSON ---------------------------------------------------------------------------------
+
+
+POINTS = [[(10.123, 11.456), (12.0, 13.0), (14.0, 15.0)], [(50.0, 60.0)]]
+BOXES = [(1.04, 2.0, 30.0, 40.0), (5.0, 6.0, 7.0, 8.0)]
+
+
+def test_detections_json_with_everything():
+    import json
+
+    data = json.loads(mp.detections_json(POINTS, BOXES, "", 1, True))
+    assert data[0] == {
+        "index": 0,
+        "box": [1.0, 2.0, 30.0, 40.0],
+        "points": [[10.1, 11.5], [12.0, 13.0], [14.0, 15.0]],
+    }
+    assert data[1] == {"index": 1, "box": [5.0, 6.0, 7.0, 8.0], "points": [[50.0, 60.0]]}
+    assert " " not in mp.detections_json(POINTS, BOXES, "", 1, True)  # compacto
+    assert "\n" in mp.detections_json(POINTS, BOXES, "", 1, False)
+
+
+def test_detections_json_only_boxes_only_points_or_nothing():
+    import json
+
+    assert json.loads(mp.detections_json(None, BOXES, "", 0, True))[0] == {
+        "index": 0,
+        "box": [1.0, 2.0, 30.0, 40.0],
+    }
+    only_points = json.loads(mp.detections_json(POINTS, None, "", 0, True))
+    assert "box" not in only_points[0] and only_points[1]["points"] == [[50.0, 60.0]]
+    assert mp.detections_json(None, None) == "[]" and mp.detections_json([], [], "4") == "[]"
+
+
+def test_detections_json_point_filter_keeps_the_given_order_and_skips_missing_ones():
+    import json
+
+    data = json.loads(mp.detections_json(POINTS, None, "2, 0 , 9, -1, x", 0, True))
+    assert data[0]["points"] == [
+        [14.0, 15.0],
+        [10.0, 11.0],
+        [14.0, 15.0],
+    ]  # 2, 0 y -1; el 9 no existe
+    assert data[1]["points"] == [[50.0, 60.0], [50.0, 60.0]]  # solo existen el 0 y el -1
+
+
+def test_detections_json_node_and_roundtrip_with_json_value(mp_registry):
+    g = Graph(mp_registry)
+    cls = mp_registry.require("mp.detections_json")
+    assert [(i.name, i.optional) for i in cls.inputs] == [("landmarks", True), ("boxes", True)]
+    assert cls.default_params() == {"indexes": "", "decimals": 1, "compact": True}
+    node = g.add_node("mp.detections_json", params={"indexes": "1"})
+    pick = g.add_node("convert.json_value", params={"path": "0.points.0.0"})
+    g.add_link(node.id, "json", pick.id, "json")
+    assert (
+        Executor().run(ExecutionPlan.from_graph(g), ExecContext()).outputs[node.id]["json"] == "[]"
+    )
+    out = cls().process(
+        ExecContext(),
+        {"landmarks": POINTS, "boxes": BOXES},
+        {"indexes": "1", "decimals": 1, "compact": True},
+    )
+    assert '"points":[[12.0,13.0]]' in out["json"]
+
+
+def test_engine_and_script_print_the_same_json_with_a_stub_mediapipe(
+    mp_registry, tmp_path, stub_dir, monkeypatch
+):
+    root, models = stub_dir
+    img = np.zeros((60, 80, 3), np.uint8)
+    src = tmp_path / "in.png"
+    cv2.imencode(".png", img)[1].tofile(str(src))
+    g = Graph(mp_registry)
+    load = g.add_node("input.load_image", params={"path": str(src)})
+    hands = g.add_node("mp.hands", params={"max": 1})
+    js = g.add_node("mp.detections_json", params={"indexes": "4, 8", "decimals": 2})
+    shown = g.add_node("output.string_viewer")
+    view = g.add_node("output.image_viewer")
+    g.add_link(load.id, "image", hands.id, "image")
+    g.add_link(hands.id, "landmarks", js.id, "landmarks")
+    g.add_link(hands.id, "boxes", js.id, "boxes")
+    g.add_link(js.id, "json", shown.id, "text")
+    g.add_link(hands.id, "image", view.id, "image")
+
+    monkeypatch.syspath_prepend(str(root))
+    for name in [n for n in sys.modules if n == "mediapipe" or n.startswith("mediapipe.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setenv("PALANTIR_NODES_MODELS", str(models))
+    ctx = ExecContext()
+    result = Executor().run(ExecutionPlan.from_graph(g), ctx)
+    ctx.close_resources()
+    assert result.ok, result.errors
+    text = result.inputs[shown.id]["text"]
+    assert text.startswith('[{"index":0,"box":[') and '"points":[[' in text
+
+    env = {**os.environ, "PYTHONPATH": str(root), "PALANTIR_NODES_MODELS": str(models)}
+    code, proc = run_script(tmp_path, g, env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == text and "import json" in code

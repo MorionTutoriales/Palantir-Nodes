@@ -2,6 +2,7 @@
 
 from palantir_nodes.libraries import LibraryInfo, Requirement
 from palantir_nodes.libraries.mediapipe_lib.nodes import (
+    DetectionsToJson,
     FaceDetection,
     FaceMesh,
     HandLandmarks,
@@ -19,7 +20,7 @@ LIBRARY = LibraryInfo(
         "detector descarga su modelo oficial (necesita Internet) y lo guarda en "
         "~/.palantir_nodes/models; también puedes indicar tu propio archivo de modelo."
     ),
-    nodes=(HandLandmarks, PoseLandmarks, FaceMesh, FaceDetection, LandmarkPoint),
+    nodes=(HandLandmarks, PoseLandmarks, FaceMesh, FaceDetection, LandmarkPoint, DetectionsToJson),
     # mediapipe declara opencv-contrib-python, que reemplazaría el cv2 que la aplicación ya
     # tiene cargado (y Windows no deja pisar cv2.pyd). Se instala sin dependencias y se
     # añaden aparte las que necesita para importarse.

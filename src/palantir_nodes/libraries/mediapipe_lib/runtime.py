@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from palantir_nodes.nodes.library._cv import as_bgr
+from palantir_nodes.nodes.library.convert import to_json_text
 
 _BASE = "https://storage.googleapis.com/mediapipe-models/"
 
@@ -216,3 +217,27 @@ def pick_landmark(landmarks, subject, index):
         x, y = landmarks[subject][index]
         return float(x), float(y), True
     return 0.0, 0.0, False
+
+
+def detections_json(landmarks, boxes, indexes="", decimals=1, compact=True):
+    """JSON con una entrada por mano/persona/rostro: ``index``, ``box`` y ``points``.
+
+    ``landmarks`` y ``boxes`` son las salidas de un detector (cualquiera puede faltar).
+    ``indexes`` limita los puntos a esos números separados por comas, en ese orden
+    (vacío = todos).
+    """
+    wanted = [int(n) for n in str(indexes).replace(",", " ").split() if n.lstrip("-").isdigit()]
+    landmarks = landmarks or []
+    boxes = boxes or []
+    items = []
+    for number in range(max(len(landmarks), len(boxes))):
+        item = {"index": number}
+        if number < len(boxes):
+            item["box"] = list(boxes[number])
+        if number < len(landmarks):
+            points = landmarks[number]
+            if wanted:
+                points = [points[i] for i in wanted if -len(points) <= i < len(points)]
+            item["points"] = [list(point) for point in points]
+        items.append(item)
+    return to_json_text(items, compact, decimals)

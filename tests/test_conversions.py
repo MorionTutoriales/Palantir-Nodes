@@ -37,6 +37,8 @@ def test_conversion_nodes_share_one_category_with_the_color_ones():
         "String to Number",
         "Integer to Float",
         "Float to Integer",
+        "Value to JSON",
+        "JSON Value",
         "RGB to HSV",
         "HSV to RGB",
         "Convert Color Space",
@@ -325,3 +327,114 @@ def test_preview_and_text_stack_without_overlapping(win):
     assert preview.bottom() <= text.top() + 1 or text.bottom() <= preview.top() + 1
     item.set_preview(None)
     assert item.height == with_text
+
+
+# -- JSON -----------------------------------------------------------------------------------------------
+
+from palantir_nodes.nodes.library.convert import json_value, to_json_text  # noqa: E402
+
+
+def test_to_json_text_converts_python_and_numpy_values():
+    value = {"a": (1, 2.5), "b": np.array([[1, 2], [3, 4]], np.uint8), "c": np.float32(0.5)}
+    assert to_json_text(value) == '{"a":[1,2.5],"b":[[1,2],[3,4]],"c":0.5}'
+    assert (
+        to_json_text([True, None, "ñ", np.bool_(False), np.int64(7)]) == '[true,null,"ñ",false,7]'
+    )
+    assert to_json_text(3.14159, decimals=2) == "3.14"
+    assert to_json_text([1 / 3, 2], decimals=3) == "[0.333,2]"  # solo redondea los decimales
+    assert to_json_text([float("nan"), float("inf"), -float("inf")]) == "[null,null,null]"
+
+
+def test_to_json_text_indented_and_unsupported_values():
+    assert to_json_text([1, 2], compact=False) == "[\n  1,\n  2\n]"
+    assert to_json_text({}) == "{}" and to_json_text("x") == '"x"'
+    with pytest.raises(ValueError, match="tipo object"):
+        to_json_text([object()])
+
+
+def test_value_to_json_node_with_vectors_colors_and_options():
+    g = Graph(REGISTRY)
+    vec = g.add_node("input.vector3", params={"value": (1.23456, 2.0, -3.5)})
+    js = g.add_node("convert.to_json", params={"decimals": 2, "compact": True})
+    pretty = g.add_node("convert.to_json", params={"decimals": 1, "compact": False})
+    g.add_link(vec.id, "vector", js.id, "value")
+    g.add_link(vec.id, "vector", pretty.id, "value")
+    out = run(g).outputs
+    assert out[js.id]["json"] == "[1.23,2.0,-3.5]"
+    assert out[pretty.id]["json"] == "[\n  1.2,\n  2.0,\n  -3.5\n]"
+
+
+def test_value_to_json_needs_a_connection_and_rejects_unsupported_values():
+    g = Graph(REGISTRY)
+    node = g.add_node("convert.to_json")
+    assert "Falta conectar" in run(g).errors[node.id]
+
+
+DOC = '[{"index": 0, "box": [1, 2, 30, 40], "points": [[10, 11], [12, 13]], "name": "mano", "ok": true}]'
+
+
+@pytest.mark.parametrize(
+    "path,number,text,found",
+    [
+        ("", 0.0, DOC.replace(": ", ":").replace(", ", ","), True),
+        ("0.index", 0.0, "0", True),
+        ("0.box.2", 30.0, "30", True),
+        ("0.points.1.0", 12.0, "12", True),
+        ("0.points.-1.1", 13.0, "13", True),  # negativos: desde el final
+        ("0.name", 0.0, "mano", True),  # un texto no es número
+        ("0.ok", 1.0, "true", True),
+        ("0.points.5", 0.0, "", False),
+        ("0.nada", 0.0, "", False),
+        ("x.y", 0.0, "", False),
+        ("0.index.1", 0.0, "", False),  # un número no tiene pasos dentro
+        (" ..0..box. ", 0.0, "", False),
+    ],
+)
+def test_json_value_paths(path, number, text, found):
+    assert json_value(DOC, path) == (number, text, found)
+
+
+def test_json_value_with_invalid_text():
+    for bad in ("", "no es json", "{", None):
+        assert json_value(bad, "a") == (0.0, "", False)
+    assert json_value("[1,2,3]", "1") == (2.0, "2", True)
+    assert json_value('{"a": 1}', "") == (0.0, '{"a":1}', True)
+
+
+def test_json_value_node_and_roundtrip_with_to_json():
+    g = Graph(REGISTRY)
+    vec = g.add_node("input.vector2", params={"value": (4.5, 9.0)})
+    js = g.add_node("convert.to_json")
+    pick = g.add_node("convert.json_value", params={"path": "1"})
+    g.add_link(vec.id, "vector", js.id, "value")
+    g.add_link(js.id, "json", pick.id, "json")
+    out = run(g).outputs[pick.id]
+    assert out == {"number": 9.0, "text": "9.0", "found": True}
+    g.set_param(pick.id, "path", "7")
+    assert run(g).outputs[pick.id]["found"] is False  # no es un error: «Encontrado» falso
+
+
+def test_exported_script_matches_the_engine_for_json_nodes(tmp_path, image_path):
+    g = Graph(REGISTRY)
+    vec = g.add_node("input.vector3", params={"value": (1.23456, 2.0, 3.0)})
+    js = g.add_node("convert.to_json", params={"decimals": 2})
+    pick = g.add_node("convert.json_value", params={"path": "0"})
+    show_json = g.add_node("output.string_viewer")
+    num = g.add_node("convert.number_to_string", params={"decimals": 2})
+    show_num = g.add_node("output.string_viewer")
+    g.add_link(vec.id, "vector", js.id, "value")
+    g.add_link(js.id, "json", pick.id, "json")
+    g.add_link(js.id, "json", show_json.id, "text")
+    g.add_link(pick.id, "number", num.id, "value")
+    g.add_link(num.id, "text", show_num.id, "text")
+    result = run(g)
+    assert result.ok, result.errors
+    expected = {result.inputs[show_json.id]["text"], result.inputs[show_num.id]["text"]}
+    assert expected == {"[1.23,2.0,3.0]", "1.23"}
+    script = tmp_path / "s.py"
+    script.write_text(CodeGenerator(ExecutionPlan.from_graph(g), "t").generate(), encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--no-show"], capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert set(proc.stdout.split()) == expected

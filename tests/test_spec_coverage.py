@@ -111,4 +111,6 @@ def test_only_known_extras_beyond_the_spec(by_label):
         "Integer to Float",
         "Float to Integer",
         "String Viewer",
+        "Value to JSON",
+        "JSON Value",
     }

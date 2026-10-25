@@ -316,6 +316,8 @@ class CodeGenerator:
             imports.append("import math")
         if re.search(r"\btime\.", text):
             imports.append("import time")
+        if re.search(r"\bjson\.", text):
+            imports.append("import json")
         imports += [line for line in self._imports if line not in imports]
         imports += ["", "import cv2"]
         if re.search(r"\bnp\.", text):

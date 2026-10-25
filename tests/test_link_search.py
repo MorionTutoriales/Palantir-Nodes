@@ -35,7 +35,10 @@ def test_image_output_matches_image_inputs_with_the_best_socket(registry):
     assert matches["Blend Images"].socket == "image_a"  # el primer socket de imagen
     assert matches["Merge Channels"].socket == "blue"
     assert matches["Draw Contours"].socket == "image"  # y no 'contours' (Any)
-    assert all(m.exact for m in matches.values())
+    assert all(m.exact for label, m in matches.items() if label != "Value to JSON")
+    assert (
+        matches["Value to JSON"].rank == 2
+    )  # acepta cualquier valor (Any), después de los exactos
 
 
 def test_float_output_matches_float_inputs_only(registry):
@@ -63,8 +66,9 @@ def test_convertible_types_rank_after_exact_ones(registry):
 
 def test_any_output_only_reaches_any_inputs(registry):
     matches = registry.compatible_with(T.ANY, origin_is_output=True)
-    assert [m.node_type.label for m in matches] == ["Draw Contours"]
+    assert [m.node_type.label for m in matches] == ["Draw Contours", "Value to JSON"]
     assert matches[0].socket == "contours" and matches[0].exact
+    assert matches[1].socket == "value" and matches[1].exact
 
 
 def test_any_input_accepts_every_output_with_exact_first(registry):
@@ -276,7 +280,7 @@ def test_implicit_conversion_is_offered_after_exact_matches(qtbot, win):
 def test_any_output_only_offers_nodes_with_any_inputs(qtbot, win):
     contours = win.controller.add_node("image.find_contours", (-300, 0))
     popup = drop_from(win, contours, "contours", True, QPointF(300, 0))
-    assert popup_items(popup) == ["image.draw_contours"]
+    assert popup_items(popup) == ["image.draw_contours", "convert.to_json"]
     qtbot.keyClick(popup.edit, Qt.Key.Key_Return)  # Enter elige el primero de la lista
     assert next(iter(win.graph.links.values())).dst_socket == "contours"
 

@@ -239,6 +239,8 @@ NODE_INPUTS = {
     "convert.string_to_number": {"text": "2,5"},
     "convert.integer_to_float": {"value": 4},
     "convert.float_to_integer": {"value": 2.5},
+    "convert.to_json": {"value": [1.5, (2, 3.25)]},
+    "convert.json_value": {"json": '{"a": [1, 2]}'},
     "color.rgb_to_hsv": {"color": (200, 40, 90)},
     "color.hsv_to_rgb": {"hsv": (10.0, 200.0, 180.0)},
 }

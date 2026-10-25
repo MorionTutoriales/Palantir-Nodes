@@ -52,6 +52,8 @@ HELPERS: dict[str, Helper] = {
     "to_uint8": Helper(_source(_cv.to_uint8)),
     "read_image": Helper(_READ_FLAGS + "\n\n\n" + _source(read_image), ("to_uint8",)),
     "parse_number": Helper(_source(convert.parse_number)),
+    "to_json_text": Helper(_source(convert.to_json_text)),
+    "json_value": Helper(_source(convert.json_value)),
     "odd": Helper(_source(_cv.odd)),
     "as_gray": Helper(_source(_cv.as_gray)),
     "as_bgr": Helper(_source(_cv.as_bgr)),
@@ -81,6 +83,7 @@ HELPERS: dict[str, Helper] = {
     "mp_detect": Helper(_source(mp.mp_detect), ("as_bgr",)),
     "mp_draw": Helper(_source(mp.mp_draw), ("as_bgr", "mp_constants")),
     "pick_landmark": Helper(_source(mp.pick_landmark)),
+    "detections_json": Helper(_source(mp.detections_json), ("to_json_text",)),
 }
 
 

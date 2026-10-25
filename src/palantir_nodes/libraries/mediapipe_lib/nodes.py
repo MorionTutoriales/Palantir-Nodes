@@ -211,3 +211,55 @@ class LandmarkPoint(NodeDefinition):
             f"{point} = ({x}, {y})",
         ]
         return CodeFragment(lines, {"point": point, "x": x, "y": y, "found": found})
+
+
+class DetectionsToJson(NodeDefinition):
+    type_id = "mp.detections_json"
+    label = "Detections to JSON"
+    category = MEDIAPIPE
+    description = (
+        "Convierte los «Puntos» y/o las «Cajas» de un detector en texto JSON: una entrada por "
+        "mano, persona o rostro con su posición, su caja y sus puntos en píxeles. Sirve para "
+        "leerlo en un String Viewer o enviarlo por la red; con «JSON Value» se vuelve a abrir."
+    )
+    inputs = (
+        InputSpec("landmarks", T.ANY, "Puntos", optional=True),
+        InputSpec("boxes", T.ANY, "Cajas", optional=True),
+    )
+    outputs = (OutputSpec("json", T.STRING, "JSON"),)
+    params = (
+        ParamSpec(
+            "indexes",
+            ParamKind.STRING,
+            "",
+            label="Solo puntos",
+            connectable=False,
+            tooltip=(
+                "Números de los puntos que se incluyen, separados por comas (p. ej. 4,8 = "
+                "pulgar e índice). Vacío = todos."
+            ),
+        ),
+        ParamSpec(
+            "decimals", ParamKind.INT, 1, label="Decimales", minimum=0, maximum=6, connectable=False
+        ),
+        ParamSpec("compact", ParamKind.BOOL, True, label="Compacto", connectable=False),
+    )
+
+    def process(self, ctx, inputs, params):
+        text = runtime.detections_json(
+            inputs["landmarks"],
+            inputs["boxes"],
+            params["indexes"],
+            params["decimals"],
+            params["compact"],
+        )
+        return {"json": text}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("detections_json")
+        o = gen.new_var("detections_text")
+        call = (
+            f"detections_json({inputs['landmarks']}, {inputs['boxes']}, {params['indexes']!r}, "
+            f"{params['decimals']!r}, {params['compact']!r})"
+        )
+        return CodeFragment([f"{o} = {call}"], {"json": o})

@@ -190,6 +190,10 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   coma decimal; si no es un número usa un valor por defecto o muestra un error, a elección),
   `Integer to Float`, `Float to Integer` (piso, techo, redondeo o truncado) y los de color
   (`RGB to HSV`, `HSV to RGB`, `Convert Color Space`).
+- **JSON:** `Value to JSON` (cualquier valor —número, vector, color, lista de puntos— a texto JSON,
+  con decimales y modo compacto o con sangría) y `JSON Value` (saca un valor de un texto JSON con un
+  camino de pasos separados por puntos, p. ej. `0.points.8.0`; si no existe, «Encontrado» es falso y no
+  hay error). Con `String Viewer` se lee el JSON y con los nodos de red se envía.
 - **`String Viewer`** (Salidas): recibe un texto y lo muestra dentro del nodo (recortado con «…» si es
   largo); al seleccionarlo o fijar el visor en él, el texto completo se lee —y se puede copiar— en el
   visor de resultados. El script exportado lo imprime cuando cambia.
@@ -221,6 +225,10 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     puntos) y `Face Detection` (cajas y 6 puntos clave). Cada uno dibuja sobre la imagen y entrega
     `Cantidad`, `Puntos` y `Cajas` (en píxeles); `Landmark Point` saca un punto concreto (p. ej.
     mano 0, índice 8 = punta del índice) como `Punto`, `X`, `Y` y `Encontrado`.
+    - `Detections to JSON`: convierte `Puntos` y/o `Cajas` de un detector en texto JSON, una entrada por
+      mano/persona/rostro: `[{"index":0,"box":[x,y,w,h],"points":[[x,y],...]}]`. «Solo puntos» limita a
+      los índices indicados (p. ej. `4,8`) y «Decimales» redondea. Sirve para leerlo en un
+      `String Viewer` o enviarlo por WebSocket/TCP, y `JSON Value` lo vuelve a abrir.
     - Se instala **sin dependencias** a propósito: `mediapipe` declara `opencv-contrib-python`, que
       reemplazaría el `cv2` que la aplicación ya tiene cargado, y Windows no deja sobrescribir
       `cv2.pyd` mientras está en uso (`Acceso denegado`, aunque seas administrador). No hace falta
@@ -342,5 +350,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (984 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (1008 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).
