@@ -15,7 +15,7 @@ from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import INPUT
 from palantir_nodes.nodes.library._cv import to_uint8
 from palantir_nodes.nodes.registry import register_node
-from palantir_nodes.nodes.specs import OutputSpec, ParamKind, ParamSpec
+from palantir_nodes.nodes.specs import OutputSpec, ParamKind, ParamSpec, resolve_slider
 
 IMAGE_FILTER = "Imágenes (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp);;Todos (*)"
 
@@ -128,6 +128,51 @@ class Integer(NodeDefinition):
     def generate_code(self, gen, inputs, params):
         v = gen.new_var("integer")
         return CodeFragment([f"{v} = {params['value']!r}"], {"value": v})
+
+
+@register_node
+class Slider(NodeDefinition):
+    type_id = "input.slider"
+    label = "Slider"
+    category = INPUT
+    description = (
+        "Valor numérico que se ajusta con un deslizador dentro del nodo. El mínimo, el máximo y "
+        "si son solo enteros se eligen en las propiedades."
+    )
+    outputs = (OutputSpec("value", T.FLOAT),)
+    params = (
+        ParamSpec(
+            "value",
+            ParamKind.FLOAT,
+            0.5,
+            label="Valor",
+            connectable=False,
+            range_params=("minimum", "maximum", "integer"),
+        ),
+        ParamSpec("minimum", ParamKind.FLOAT, 0.0, label="Mínimo", connectable=False),
+        ParamSpec("maximum", ParamKind.FLOAT, 1.0, label="Máximo", connectable=False),
+        ParamSpec(
+            "integer",
+            ParamKind.BOOL,
+            False,
+            label="Solo enteros",
+            connectable=False,
+            tooltip="Con esta casilla el deslizador solo toma valores enteros",
+        ),
+    )
+
+    @staticmethod
+    def _value(params) -> float:
+        return resolve_slider(
+            params["minimum"], params["maximum"], params["value"], params["integer"]
+        )[2]
+
+    def process(self, ctx, inputs, params):
+        return {"value": self._value(params)}
+
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("slider")
+        return CodeFragment([f"{v} = {self._value(params)!r}"], {"value": v})
 
 
 @register_node

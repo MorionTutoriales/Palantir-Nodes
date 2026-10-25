@@ -185,6 +185,11 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Nodo `Slider`** (categoría Entrada): el valor se ajusta con un deslizador dentro del nodo
+  (clic o arrastre; doble clic para escribirlo). En las propiedades se eligen el **mínimo**, el
+  **máximo** y **Solo enteros**. Los extremos al revés se intercambian y el valor siempre queda
+  dentro del rango. Su salida es de tipo `Float` (en modo entero toma valores enteros) y se puede
+  conectar también a parámetros enteros.
 - **Nodos personalizados en Python** (menú **Nodos**, `Ctrl+Shift+N`, también «Nuevo nodo
   personalizado…» en el menú de añadir y el botón en Preferencias). Se escribe una función y el
   programa la convierte en un nodo:
@@ -268,5 +273,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (788 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (806 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -62,6 +63,9 @@ class ParamSpec:
     # Si el tipo lo permite, el parámetro tiene además un socket de entrada: se puede escribir
     # el valor o conectar la salida de otro nodo (que entonces lo sustituye).
     connectable: bool = True
+    # Parámetro numérico que el nodo dibuja como deslizador cuyo rango sale de otros parámetros:
+    # (nombre del mínimo, nombre del máximo, nombre de la casilla «solo enteros»).
+    range_params: tuple[str, str, str] | None = None
 
     @property
     def display_label(self) -> str:
@@ -194,6 +198,22 @@ class ParamSpec:
                 return "(" + ", ".join(f"{c:.2f}" for c in value) + ")"
             case _:
                 return str(value) if value != "" else "—"
+
+
+def resolve_slider(
+    minimum: float, maximum: float, value: float, integer: bool
+) -> tuple[float, float, float]:
+    """Rango efectivo y valor de un deslizador: ``(mínimo, máximo, valor)``.
+
+    Si los extremos están al revés se intercambian; en modo entero el rango se reduce a los
+    enteros que contiene y el valor se redondea. El valor siempre queda dentro del rango.
+    """
+    low, high = sorted((float(minimum), float(maximum)))
+    if integer:
+        low, high = math.ceil(low), max(math.ceil(low), math.floor(high))
+        value = round(value)
+    value = min(max(float(value), low), high)
+    return float(low), float(high), float(value)
 
 
 _EDITABLE_INPUT_KINDS: dict[SocketType, ParamKind] = {

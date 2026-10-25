@@ -95,4 +95,4 @@ def test_sources_are_flagged_for_realtime(by_label):
 
 def test_only_known_extras_beyond_the_spec(by_label):
     spec = {label for labels in SPEC_NODES.values() for label in labels}
-    assert set(by_label) - spec == {"Integer", "Vector2", "Vector3"}
+    assert set(by_label) - spec == {"Integer", "Vector2", "Vector3", "Slider"}

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QGraphicsItem, QStyle
 
 from palantir_nodes.core.graph import NodeInstance
 from palantir_nodes.nodes.categories import get_category
-from palantir_nodes.nodes.specs import ParamKind, ParamSpec
+from palantir_nodes.nodes.specs import ParamKind, ParamSpec, resolve_slider
 from palantir_nodes.ui.editor.field_values import NUMERIC_KINDS, scrub_value
 from palantir_nodes.ui.editor.socket_item import SocketItem
 from palantir_nodes.ui.theme import Colors
@@ -289,6 +289,10 @@ class NodeItem(QGraphicsItem):
             painter.drawRoundedRect(swatch, 3, 3)
             return
 
+        if spec.range_params is not None and row.kind == "param":
+            self._paint_slider(painter, row, field, inner)
+            return
+
         text = spec.format(value)
         label_width = metrics.horizontalAdvance(row.label + "  ")
         value_text = metrics.elidedText(
@@ -298,6 +302,40 @@ class NodeItem(QGraphicsItem):
         painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
         painter.setPen(QColor(Colors.NODE_TEXT))
         painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignRight, value_text)
+
+    def _slider_state(self, row: _Row) -> tuple[float, float, float, bool]:
+        """``(mínimo, máximo, valor, solo_enteros)`` efectivos del deslizador de la fila."""
+        lo_name, hi_name, int_name = row.spec.range_params
+        params = self.node.params
+        integer = bool(params.get(int_name))
+        low, high, value = resolve_slider(
+            params.get(lo_name, 0.0), params.get(hi_name, 1.0), params.get(row.name, 0.0), integer
+        )
+        return low, high, value, integer
+
+    def _paint_slider(self, painter: QPainter, row: _Row, field: QRectF, inner: QRectF) -> None:
+        low, high, value, integer = self._slider_state(row)
+        fraction = (value - low) / (high - low) if high > low else 0.0
+        painter.save()
+        clip = QPainterPath()
+        clip.addRoundedRect(field, 4, 4)
+        painter.setClipPath(clip)
+        fill = QRectF(field.left(), field.top(), field.width() * fraction, field.height())
+        painter.fillRect(fill, QColor(Colors.ACCENT))
+        painter.restore()
+        text = f"{value:.0f}" if integer else f"{value:.{row.spec.decimals}f}"
+        painter.setPen(QColor(Colors.NODE_TEXT))
+        align_v = Qt.AlignmentFlag.AlignVCenter
+        painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
+        painter.drawText(inner, align_v | Qt.AlignmentFlag.AlignRight, text)
+
+    def _slider_value_at(self, row: _Row, x: float) -> float:
+        """Valor del deslizador para una posición horizontal local (se recorta al rango)."""
+        low, high, _, integer = self._slider_state(row)
+        field = self._field_rect(row)
+        fraction = min(max((x - field.left()) / field.width(), 0.0), 1.0)
+        value = low + (high - low) * fraction
+        return resolve_slider(low, high, value, integer)[2]
 
     # -- edición de valores dentro del nodo --------------------------------------------
 
@@ -341,7 +379,7 @@ class NodeItem(QGraphicsItem):
         self._set_hover_row(row)
         if row is None:
             self.unsetCursor()
-        elif row.spec.kind in NUMERIC_KINDS:
+        elif row.spec.kind in NUMERIC_KINDS or row.spec.range_params:
             self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -367,7 +405,11 @@ class NodeItem(QGraphicsItem):
             "value0": self._current_value(row),
             "scrubbing": False,
             "moved": False,
+            "slider": row.spec.range_params is not None and row.kind == "param",
         }
+        if self._field_press["slider"]:  # el deslizador salta a donde se pulsa
+            self._field_press["scrubbing"] = True
+            self._apply_value(row, self._slider_value_at(row, event.pos().x()))
         event.accept()  # el campo no arrastra el nodo
 
     def mouseMoveEvent(self, event) -> None:
@@ -376,6 +418,10 @@ class NodeItem(QGraphicsItem):
             super().mouseMoveEvent(event)
             return
         row = press["row"]
+        if press["slider"]:
+            self._apply_value(row, self._slider_value_at(row, event.pos().x()))
+            event.accept()
+            return
         offset = event.scenePos() - press["start"]
         dx = offset.x()
         if offset.manhattanLength() >= DRAG_THRESHOLD:
@@ -402,6 +448,15 @@ class NodeItem(QGraphicsItem):
         else:
             rect = self.mapRectToScene(self._field_rect(row))
             self.scene().field_edit_requested.emit(self.node_id, row.kind, row.name, rect)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        row = self.field_at(event.pos()) if event.button() == Qt.MouseButton.LeftButton else None
+        if row is not None and row.spec.range_params is not None and row.kind == "param":
+            rect = self.mapRectToScene(self._field_rect(row))
+            self.scene().field_edit_requested.emit(self.node_id, row.kind, row.name, rect)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     # -- eventos -----------------------------------------------------------------------
 
