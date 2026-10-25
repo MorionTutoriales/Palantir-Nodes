@@ -7,7 +7,9 @@ de los parámetros y sus salidas a partir del tipo de retorno.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import keyword
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -269,6 +271,40 @@ def _neutral_or_checked_default(
         return _NEUTRAL_DEFAULTS[kind]
 
 
+def imported_modules(tree: ast.AST) -> list[tuple[str, int]]:
+    """Módulos de nivel superior que importa el código, con la línea del primer ``import``."""
+    found: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names = [node.module]
+        else:
+            continue
+        for name in names:
+            found.setdefault(name.split(".")[0], node.lineno)
+    return list(found.items())
+
+
+def _check_imports(tree: ast.AST, analysis: Analysis) -> None:
+    """Avisa de los módulos que no se encuentran (sin importarlos ni ejecutar nada)."""
+    for name, line in imported_modules(tree):
+        if name in sys.stdlib_module_names:
+            continue
+        try:
+            found = importlib.util.find_spec(name) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            analysis.warnings.append(
+                Issue(
+                    f"el módulo '{name}' no se encuentra: instálalo en el Python de la aplicación "
+                    "o añade su carpeta en «Rutas de importación»",
+                    line,
+                )
+            )
+
+
 def analyze(code: str) -> Analysis:
     """Analiza el código del nodo. No lo ejecuta."""
     analysis = Analysis()
@@ -284,6 +320,8 @@ def analyze(code: str) -> Analysis:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "__future__":
             analysis.errors.append(Issue("no se admite 'from __future__ import ...'", node.lineno))
+
+    _check_imports(tree, analysis)
 
     functions = [
         n

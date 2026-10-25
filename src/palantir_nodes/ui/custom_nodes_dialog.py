@@ -251,6 +251,7 @@ class CustomNodesDialog(QDialog):
     """
 
     changed = Signal(list, list)
+    import_paths_changed = Signal(list)  # carpetas de importación nuevas
 
     def __init__(
         self,
@@ -259,9 +260,11 @@ class CustomNodesDialog(QDialog):
         *,
         usage: Callable[[str], int] | None = None,
         start_new: bool = False,
+        import_paths: list[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.library = library
+        self.import_paths = list(import_paths or [])
         self._usage = usage or (lambda _id: 0)
         self.current_id: str | None = None
         self._loading = False
@@ -295,6 +298,10 @@ class CustomNodesDialog(QDialog):
         self.btn_save = QPushButton("Guardar")
         self.btn_revert = QPushButton("Descartar cambios")
         self.btn_close = QPushButton("Cerrar")
+        self.btn_paths = QPushButton("Rutas de importación…")
+        self.btn_paths.setToolTip(
+            "Carpetas con tus propios módulos o librerías para usar con import en el código"
+        )
         self.state_label = QLabel()
 
         warning = QLabel(
@@ -342,6 +349,7 @@ class CustomNodesDialog(QDialog):
         right_layout.addWidget(self.info)
         bottom = QHBoxLayout()
         bottom.addWidget(self.state_label, 1)
+        bottom.addWidget(self.btn_paths)
         for button in (self.btn_revert, self.btn_save, self.btn_close):
             bottom.addWidget(button)
         right_layout.addLayout(bottom)
@@ -366,6 +374,7 @@ class CustomNodesDialog(QDialog):
         self.btn_save.clicked.connect(self.save_current)
         self.btn_revert.clicked.connect(self.revert)
         self.btn_close.clicked.connect(self.close)
+        self.btn_paths.clicked.connect(self.edit_import_paths)
         self.templates.activated.connect(self._on_template)
         for signal in (
             self.name_edit.textChanged,
@@ -381,6 +390,25 @@ class CustomNodesDialog(QDialog):
             self.new_entry(confirm=False)
         else:
             self.select_entry(self.library.ordered()[0].id, confirm=False)
+
+    # -- rutas de importación -------------------------------------------------------------
+
+    def edit_import_paths(self) -> bool:
+        """Abre el editor de rutas de importación. ``True`` si cambiaron."""
+        from palantir_nodes.ui.import_paths_dialog import ImportPathsDialog
+
+        dialog = ImportPathsDialog(self.import_paths, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        return self.set_import_paths(dialog.paths())
+
+    def set_import_paths(self, paths: list[str]) -> bool:
+        if paths == self.import_paths:
+            return False
+        self.import_paths = list(paths)
+        self.import_paths_changed.emit(list(paths))  # la ventana las aplica y las guarda
+        self.refresh_analysis()  # los avisos de módulos no encontrados pueden haber cambiado
+        return True
 
     # -- lista ---------------------------------------------------------------------------
 

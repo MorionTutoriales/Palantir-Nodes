@@ -11,7 +11,7 @@ import json
 import math
 import os
 import sys
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +49,8 @@ class Preferences:
     auto_run_default: bool = True  # valor para proyectos nuevos
     previews_default: bool = True  # valor para proyectos nuevos
     preview_rate_hz: int = 15  # miniaturas por segundo como máximo en tiempo real
+    # Carpetas extra donde los nodos personalizados buscan módulos al hacer ``import``.
+    import_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -76,7 +78,17 @@ class Preferences:
         return prefs, warnings
 
 
+MAX_IMPORT_PATHS = 50
+
+
 def _coerce(name: str, value: Any, default: Any, warnings: list[str]) -> Any:
+    if isinstance(default, list):
+        if not isinstance(value, list):
+            raise TypeError
+        clean = list(dict.fromkeys(v.strip() for v in value if isinstance(v, str) and v.strip()))
+        if len(clean) != len(value):
+            warnings.append(f"Preferencia '{name}': se omitieron entradas inválidas o repetidas")
+        return clean[:MAX_IMPORT_PATHS]
     if isinstance(default, bool):
         if not isinstance(value, bool):
             raise TypeError

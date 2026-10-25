@@ -76,6 +76,11 @@ def describe_error(exc: BaseException, filename: str) -> str:
             line = frame.lineno - 1  # el último = el más interno dentro del código del usuario
     text = str(exc).strip()
     message = f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+    if isinstance(exc, ModuleNotFoundError):
+        message += (
+            " (instálalo en el Python de la aplicación o añade su carpeta en "
+            "«Rutas de importación» del gestor de nodos personalizados)"
+        )
     if "read-only" in text:
         message += " (las imágenes de entrada son de solo lectura: usa imagen.copy())"
     if line is not None and line > 0:

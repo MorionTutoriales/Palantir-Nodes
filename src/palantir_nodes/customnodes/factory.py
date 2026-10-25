@@ -33,6 +33,27 @@ def _humanize(name: str) -> str:
     return name.replace("_", " ").strip().capitalize()
 
 
+def _prelude_for_imports(gen, spec, analysis) -> None:
+    """Rutas de importación y paquetes que necesita el código del nodo en el script exportado."""
+    import ast
+    import sys
+
+    from palantir_nodes.customnodes.analysis import imported_modules
+    from palantir_nodes.customnodes.paths import applied_paths
+
+    try:
+        modules = [m for m, _ in imported_modules(ast.parse(spec.code))]
+    except SyntaxError:
+        return
+    extra = [m for m in modules if m not in sys.stdlib_module_names and m not in ("numpy", "cv2")]
+    if extra:
+        gen.add_prelude(
+            f"# Paquetes que importan los nodos personalizados: {', '.join(sorted(set(extra)))}"
+        )
+    for folder in applied_paths():
+        gen.add_prelude(f"sys.path.append({folder!r})  # ruta de importación de la aplicación")
+
+
 def build_node_class(spec: CustomNodeSpec, analysis: Analysis) -> type[NodeDefinition]:
     """Crea la clase del nodo. ``analysis`` debe haberse hecho sobre ``spec.code`` y ser válido."""
     if not analysis.ok:
@@ -93,6 +114,7 @@ def build_node_class(spec: CustomNodeSpec, analysis: Analysis) -> type[NodeDefin
             make = gen.new_var(f"make_{slug}")
             for line in PRELUDE:
                 gen.add_prelude(line)
+            _prelude_for_imports(gen, spec, analysis)
             source = factory_source(spec.code, analysis.function_name)
             source = source.replace(f"def {FACTORY_NAME}():", f"def {make}():", 1)
             gen.add_module_code(

@@ -279,6 +279,14 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     Un `tuple[...]` en el retorno **siempre** son varias salidas; para una sola salida vectorial
     usa `-> Vector2`, `-> Vector3` o `-> Color`. Una función sin retorno es un nodo de salida (solo actúa
     al pulsar Ejecutar, nunca en la ejecución automática ni en tiempo real).
+  - **Importar otras librerías:** el código puede hacer `import` de cualquier módulo de la biblioteca
+    estándar o instalado en el Python de la aplicación. Para **módulos propios o librerías que tienes
+    en otra carpeta del equipo**, el botón **Rutas de importación…** del gestor de nodos
+    personalizados guarda las carpetas (en las preferencias) y las añade **al final** de `sys.path`
+    (nunca tapan los paquetes de la aplicación); indica la carpeta que *contiene* el módulo. El panel
+    de análisis avisa de los `import` que no se encuentran (sin ejecutarlos) y, si falla al ejecutar,
+    el error sugiere esa opción. El script exportado repite las rutas con `sys.path.append(...)` (son
+    rutas de este equipo) y lista en un comentario los paquetes importados.
   - Disponibles sin importar: `np`, `cv2`, `math`. Las imágenes de entrada son de **solo lectura**
     (usa `.copy()`); las de salida se normalizan a `uint8`. Los errores indican la línea del código
     del nodo.
@@ -350,5 +358,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (1008 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (1029 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

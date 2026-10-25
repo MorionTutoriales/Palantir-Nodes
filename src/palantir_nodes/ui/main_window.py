@@ -21,6 +21,7 @@ from palantir_nodes import __version__
 from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.customnodes.library import CustomNodeLibrary, CustomNodeValidationError
+from palantir_nodes.customnodes.paths import apply_import_paths
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.libraries import available_libraries, get_library
 from palantir_nodes.libraries.manager import LibraryManager
@@ -356,6 +357,7 @@ class MainWindow(QMainWindow):
         self.view.set_grid_visible(self.prefs.show_grid)
         self.view.zoom_step = self.prefs.zoom_speed
         self.runner.set_preview_rate(self.prefs.preview_rate_hz)
+        apply_import_paths(self.prefs.import_paths)
 
     def _apply_new_project_defaults(self) -> None:
         """Estado de Auto y de las previsualizaciones para un proyecto nuevo."""
@@ -693,10 +695,22 @@ class MainWindow(QMainWindow):
     def open_custom_nodes(self, new: bool = False) -> None:
         """Abre el gestor de nodos personalizados (``new``: empieza creando uno)."""
         dialog = CustomNodesDialog(
-            self.custom_library, self, usage=self._count_nodes_of_type, start_new=new
+            self.custom_library,
+            self,
+            usage=self._count_nodes_of_type,
+            start_new=new,
+            import_paths=self.prefs.import_paths,
         )
         dialog.changed.connect(self._on_custom_nodes_changed)
+        dialog.import_paths_changed.connect(self._on_import_paths_changed)
         dialog.exec()
+
+    def _on_import_paths_changed(self, paths: list[str]) -> None:
+        """Aplica y guarda las carpetas de importación de los nodos personalizados."""
+        self.prefs.import_paths = list(paths)
+        apply_import_paths(paths)
+        self.runner.clear_cache()  # los nodos que fallaron por un import deben reintentarse
+        self._save_preferences(warn=True)
 
     def _on_custom_nodes_changed(self, changed: list[str], removed: list[str]) -> None:
         """Adapta el grafo abierto cuando se edita o se borra un nodo personalizado en uso."""
