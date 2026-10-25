@@ -41,6 +41,8 @@ class ProjectData:
     previews: bool = True
     zoom: float = 1.0
     center: tuple[float, float] = (0.0, 0.0)
+    # Librerías adicionales activadas en el proyecto.
+    libraries: list[str] = field(default_factory=list)
     pinned_node: str | None = None  # nodo en el que estaba fijado el visor
     preserved_nodes: list[dict[str, Any]] = field(default_factory=list)
     preserved_links: list[dict[str, Any]] = field(default_factory=list)
@@ -79,6 +81,7 @@ def dump(
         "nodes": nodes,
         "links": links,
         "frames": [frame.to_dict() for frame in graph.frames.values()],
+        "libraries": list(project.libraries),
         "custom_nodes": list(custom_nodes or []),
     }
 
@@ -239,6 +242,22 @@ def embedded_custom_nodes(data: dict[str, Any]) -> tuple[list[CustomNodeSpec], l
         except ValueError as exc:
             warnings.append(f"Nodo personalizado incrustado #{index} omitido: {exc}")
     return specs, warnings
+
+
+def embedded_libraries(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Identificadores de las librerías que el proyecto tiene activadas (y avisos)."""
+    raw = data.get("libraries", []) if isinstance(data, dict) else []
+    if not isinstance(raw, list):
+        return [], ["'libraries' no es una lista (se ignora)"]
+    ids: list[str] = []
+    warnings: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item:
+            if item not in ids:
+                ids.append(item)
+        else:
+            warnings.append(f"Librería con un identificador inválido ({item!r}) omitida")
+    return ids, warnings
 
 
 _FRAME_NUMBERS = ("x", "y", "width", "height")

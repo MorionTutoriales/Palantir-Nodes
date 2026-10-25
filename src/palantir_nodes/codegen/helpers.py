@@ -12,7 +12,8 @@ import textwrap
 from dataclasses import dataclass
 
 from palantir_nodes.customnodes import runtime
-from palantir_nodes.media import capture
+from palantir_nodes.libraries.network import runtime as network_runtime
+from palantir_nodes.media import capture, timing
 from palantir_nodes.nodes.library import _cv
 from palantir_nodes.nodes.library.inputs import read_image
 
@@ -50,6 +51,8 @@ HELPERS: dict[str, Helper] = {
     "odd": Helper(_source(_cv.odd)),
     "as_gray": Helper(_source(_cv.as_gray)),
     "as_bgr": Helper(_source(_cv.as_bgr)),
+    "rgb_to_hsv": Helper(_source(_cv.rgb_to_hsv)),
+    "hsv_to_rgb": Helper(_source(_cv.hsv_to_rgb)),
     "match": Helper(_source(_cv.match), ("as_bgr",)),
     "save_image": Helper(_SAVE_IMAGE),
     "coerce_results": Helper(_source(runtime.coerce_results)),
@@ -57,6 +60,11 @@ HELPERS: dict[str, Helper] = {
     "open_camera_capture": Helper(_source(capture.open_camera_capture)),
     "read_frame": Helper(_source(capture.read_frame)),
     "open_video_writer": Helper(_source(capture.open_video_writer)),
+    "TickClock": Helper(_source(timing.TickClock)),
+    "WebSocketLink": Helper(
+        f"MAX_PENDING = {network_runtime.MAX_PENDING}\n\n\n"
+        + _source(network_runtime.WebSocketLink)
+    ),
 }
 
 

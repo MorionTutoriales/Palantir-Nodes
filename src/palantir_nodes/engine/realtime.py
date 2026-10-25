@@ -91,6 +91,7 @@ class RealtimeSession:
             frames[node_id] = frame
 
         self.ctx.frames = frames
+        self.ctx.sources = {node_id: source for node_id, (_cfg, source) in self._sources.items()}
         self.ctx.frame_index += 1
         self.ctx.preview_max = self._preview_for_this_frame()
         result = self.executor.run(self.plan, self.ctx)

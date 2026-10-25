@@ -11,6 +11,7 @@ from palantir_nodes.persistence.serializer import (
     ProjectData,
     dump,
     embedded_custom_nodes,
+    embedded_libraries,
     load,
 )
 
@@ -21,6 +22,7 @@ __all__ = [
     "ProjectFormatError",
     "dump",
     "embedded_custom_nodes",
+    "embedded_libraries",
     "load",
     "migrate",
     "read_project",

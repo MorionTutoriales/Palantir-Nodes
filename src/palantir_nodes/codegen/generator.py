@@ -62,6 +62,8 @@ class CodeGenerator:
         self._windows: dict[str, int] = {}
         self._defined: dict[str, str] = {}
         self._prelude: list[str] = []
+        self._imports: list[str] = []
+        self._requirements: list[str] = []
         self._module_code: list[str] = []
 
     # -- API para los nodos ------------------------------------------------------------
@@ -94,6 +96,16 @@ class CodeGenerator:
         name = self.new_var(hint)
         self._defined[key] = name
         return name, True
+
+    def add_import(self, line: str) -> None:
+        """Sentencia ``import`` adicional para el encabezado del script (sin repetirse)."""
+        if line not in self._imports:
+            self._imports.append(line)
+
+    def add_requirement(self, package: str) -> None:
+        """Paquete de pip que el script necesita además de OpenCV y NumPy."""
+        if package not in self._requirements:
+            self._requirements.append(package)
 
     def add_prelude(self, line: str) -> None:
         """Línea de nivel de módulo que va antes de las definiciones (sin repetirse)."""
@@ -276,7 +288,8 @@ class CodeGenerator:
             final = list(cleanup)
             if self.uses_display:
                 final += ["if show:", "    cv2.destroyAllWindows()"]
-            main += ["    finally:", *_indent(final, 2)]
+            if final:  # un Tick no necesita liberar nada
+                main += ["    finally:", *_indent(final, 2)]
         elif self.uses_display:
             main += ["    if show:", "        cv2.waitKey(0)", "        cv2.destroyAllWindows()"]
         return main
@@ -301,16 +314,20 @@ class CodeGenerator:
             imports.append("import os")
         if re.search(r"\bmath\.", text):
             imports.append("import math")
+        if re.search(r"\btime\.", text):
+            imports.append("import time")
+        imports += [line for line in self._imports if line not in imports]
         imports += ["", "import cv2"]
         if re.search(r"\bnp\.", text):
             imports.append("import numpy as np")
 
+        requires = " ".join(["opencv-python", "numpy", *self._requirements])
         version = f" {self.version}" if self.version else ""
         usage = "[--no-show]" + (" [--max-frames N]" if realtime else "")
         header = (
             "#!/usr/bin/env python3\n"
             f'"""Script generado por Palantir Nodes{version}.\n\n'
-            "No necesita la aplicación; requiere: pip install opencv-python numpy\n"
+            f"No necesita la aplicación; requiere: pip install {requires}\n"
             f"Uso: python este_script.py {usage}\n"
             '"""\n\n'
         )

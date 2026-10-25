@@ -234,6 +234,9 @@ NODE_INPUTS = {
     "compose.mask": {"image": SAMPLE, "mask": MASK[:20, :25]},
     "compose.merge_channels": {"blue": GRAY, "green": GRAY, "red": GRAY},
     "compose.split_channels": {"image": SAMPLE},
+    "image.convert_color": {"image": SAMPLE},
+    "color.rgb_to_hsv": {"color": (200, 40, 90)},
+    "color.hsv_to_rgb": {"hsv": (10.0, 200.0, 180.0)},
 }
 
 

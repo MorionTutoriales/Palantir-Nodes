@@ -11,6 +11,7 @@ from palantir_nodes.media.capture import (
     open_camera_capture,
     open_video_capture,
 )
+from palantir_nodes.media.timing import TickClock
 from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
 from palantir_nodes.nodes.categories import INPUT
 from palantir_nodes.nodes.library._cv import to_uint8
@@ -313,6 +314,70 @@ class Webcam(NodeDefinition):
             pre=[f"{cap} = None"],
             setup=[f"{cap} = open_camera_capture({params['index']})"],
             cleanup=[f"if {cap} is not None:", f"    {cap}.release()"],
+        )
+
+
+@register_node
+class Tick(NodeDefinition):
+    type_id = "input.tick"
+    label = "Tick"
+    category = INPUT
+    description = (
+        "Avisa cada cierto tiempo: «Tick» es verdadero solo en el fotograma en que se cumple el "
+        "intervalo. Funciona en tiempo real (F5) y lo mantiene activo aunque no haya cámara; "
+        "con un Tick el tiempo real va como máximo a 60 fotogramas por segundo."
+    )
+    is_source = True
+    outputs = (
+        OutputSpec("tick", T.BOOLEAN, "Tick"),
+        OutputSpec("count", T.INTEGER, "Cuenta"),
+        OutputSpec("time", T.FLOAT, "Segundos"),
+    )
+    params = (
+        ParamSpec(
+            "interval",
+            ParamKind.FLOAT,
+            1.0,
+            label="Intervalo (s)",
+            minimum=0.01,
+            maximum=3600.0,
+            connectable=False,
+        ),
+        ParamSpec(
+            "at_start",
+            ParamKind.BOOL,
+            True,
+            label="Al iniciar",
+            connectable=False,
+            tooltip="Dispara un primer Tick nada más empezar, sin esperar el primer intervalo",
+        ),
+    )
+
+    @classmethod
+    def open_source(cls, params):
+        return TickClock(params["interval"], params["at_start"])
+
+    def process(self, ctx, inputs, params):
+        state = ctx.frames.get(ctx.node_id)
+        tick, count, seconds = state if state is not None else (False, 0, 0.0)
+        return {"tick": tick, "count": count, "time": seconds}
+
+    def generate_code(self, gen, inputs, params):
+        gen.helper("TickClock")
+        clock = gen.new_var("clock")
+        tick, count, seconds = (
+            gen.new_var("tick"),
+            gen.new_var("tick_count"),
+            gen.new_var("seconds"),
+        )
+        return CodeFragment(
+            [
+                f"{tick}, {count}, {seconds} = {clock}.read()",
+                "time.sleep(0.001)  # evita ocupar toda la CPU esperando el siguiente Tick",
+            ],
+            {"tick": tick, "count": count, "time": seconds},
+            pre=[f"{clock} = None"],
+            setup=[f"{clock} = TickClock({params['interval']!r}, {params['at_start']!r})"],
         )
 
 

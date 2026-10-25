@@ -34,6 +34,8 @@ class ExecContext:
     realtime: bool = False
     frame_index: int = 0
     frames: dict[str, Any] = field(default_factory=dict)
+    # Las fuentes abiertas de la sesión (nodo -> objeto), para los nodos que también les envían.
+    sources: dict[str, Any] = field(default_factory=dict)
     # Nodo que se está procesando (lo fija el ejecutor antes de cada ``process``).
     node_id: str = ""
     # Recursos con ciclo de vida (p. ej. VideoWriter): nodo -> (clave, objeto, cierre).

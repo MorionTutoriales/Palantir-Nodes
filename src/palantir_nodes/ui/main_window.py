@@ -22,12 +22,15 @@ from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.customnodes.library import CustomNodeLibrary, CustomNodeValidationError
 from palantir_nodes.engine.plan import ExecutionPlan
+from palantir_nodes.libraries import available_libraries, get_library
+from palantir_nodes.libraries.manager import LibraryManager
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.persistence import (
     ProjectData,
     ProjectFormatError,
     dump,
     embedded_custom_nodes,
+    embedded_libraries,
     load,
     read_project,
     write_project,
@@ -37,6 +40,7 @@ from palantir_nodes.ui.custom_nodes_dialog import CustomNodesDialog
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
+from palantir_nodes.ui.libraries_dialog import LibrariesDialog
 from palantir_nodes.ui.preferences_dialog import PreferencesDialog
 from palantir_nodes.ui.properties.panel import PropertiesPanel
 from palantir_nodes.ui.run_controller import RunController
@@ -53,6 +57,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.prefs, pref_warnings = load_preferences()
         self.pinned_node: str | None = None  # nodo en el que está fijado el visor
+        self.libraries = LibraryManager(registry)  # librerías activas en el proyecto abierto
         self.custom_library = CustomNodeLibrary(registry)
         library_warnings = self.custom_library.load()  # registra los nodos personalizados
         startup_messages = [*(startup_messages or []), *pref_warnings, *library_warnings]
@@ -171,6 +176,10 @@ class MainWindow(QMainWindow):
         self.action_new_custom_node = QAction("Nuevo nodo personalizado…", self)
         self.action_new_custom_node.triggered.connect(lambda: self.open_custom_nodes(new=True))
         self.view.new_custom_node_requested.connect(lambda: self.open_custom_nodes(new=True))
+        self.action_libraries = QAction("Librerías del proyecto…", self)
+        self.action_libraries.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.action_libraries.setToolTip("Activar librerías adicionales de nodos (p. ej. red)")
+        self.action_libraries.triggered.connect(lambda: self.open_libraries())
 
         self.action_prefs = QAction("Preferencias…", self)
         self.action_prefs.setShortcut(QKeySequence("Ctrl+,"))
@@ -221,6 +230,8 @@ class MainWindow(QMainWindow):
         nodes_menu = bar.addMenu("&Nodos")
         nodes_menu.addAction(self.action_custom_nodes)
         nodes_menu.addAction(self.action_new_custom_node)
+        nodes_menu.addSeparator()
+        nodes_menu.addAction(self.action_libraries)
 
         run_menu = bar.addMenu("E&jecución")
         run_menu.addAction(self.action_run)
@@ -506,6 +517,7 @@ class MainWindow(QMainWindow):
         self.project.auto_run = self.runner.auto_run
         self.project.previews = self.runner.preview_enabled
         self.project.pinned_node = self.pinned_node
+        self.project.libraries = self.libraries.enabled
         self.project.zoom = state["zoom"]
         self.project.center = tuple(state["center"])
         try:
@@ -534,15 +546,28 @@ class MainWindow(QMainWindow):
 
     def load_project(self, path: Path) -> bool:
         """Carga un proyecto, reemplazando el actual. Si falla, el actual no se toca."""
+        previous_libraries = self.libraries.enabled
         try:
             data = read_project(path)
             leftovers, import_notes = self._import_embedded_custom_nodes(data)
+            library_ids, library_warnings = embedded_libraries(data)
+            unknown = self.libraries.set_enabled(library_ids)  # antes de crear los nodos
             loaded, project = load(data, self.registry)
         except ProjectFormatError as exc:
+            self.libraries.set_enabled(previous_libraries)
             QMessageBox.critical(self, APP_NAME, f"No se pudo abrir '{Path(path).name}':\n{exc}")
             return False
         project.custom_nodes = leftovers  # los que no se importaron se conservan al guardar
-        project.warnings[:0] = import_notes
+        project.libraries = self.libraries.enabled
+        project.warnings[:0] = [
+            *import_notes,
+            *library_warnings,
+            *(
+                f"La librería '{i}' no existe en esta versión (sus nodos se conservan)"
+                for i in unknown
+            ),
+            *self._missing_package_notes(),
+        ]
 
         self.runner.stop_realtime(wait=True)
         self.runner.auto_run = False  # evita una ejecución por cada nodo añadido
@@ -582,6 +607,68 @@ class MainWindow(QMainWindow):
             if extra > 0:
                 text += f"\n… y {extra} aviso(s) más"
             QMessageBox.warning(self, APP_NAME, f"El proyecto se abrió con avisos:\n\n{text}")
+        return True
+
+    # -- librerías adicionales ---------------------------------------------------------
+
+    def _library_usage(self) -> dict[str, int]:
+        """Cuántos nodos del grafo abierto pertenecen a cada librería."""
+        return {
+            library.id: sum(self._count_nodes_of_type(cls.type_id) for cls in library.nodes)
+            for library in available_libraries()
+        }
+
+    def _missing_package_notes(self) -> list[str]:
+        """Avisos de las librerías activas a las que les faltan paquetes por instalar."""
+        notes = []
+        for library_id in self.libraries.enabled:
+            library = get_library(library_id)
+            if library is not None and library.missing:
+                notes.append(
+                    f"La librería '{library.label}' necesita instalar: {library.install_command}"
+                )
+        return notes
+
+    def open_libraries(self) -> None:
+        """Muestra el diálogo de librerías y aplica la selección al proyecto."""
+        dialog = LibrariesDialog(self.libraries.enabled, self, usage=self._library_usage())
+        if dialog.exec() == LibrariesDialog.DialogCode.Accepted:
+            self.apply_libraries(dialog.selected_ids())
+
+    def apply_libraries(self, selected: list[str]) -> bool:
+        """Activa y desactiva librerías. Al desactivar una en uso se piden confirmación y se
+        eliminan sus nodos del grafo. ``False`` si el usuario canceló o no hubo cambios."""
+        removed = [i for i in self.libraries.enabled if i not in selected]
+        added = [i for i in selected if i not in self.libraries.enabled]
+        if not removed and not added:
+            return False
+        usage = self._library_usage()
+        doomed = sum(usage.get(i, 0) for i in removed)
+        if doomed:
+            names = ", ".join(get_library(i).label for i in removed if usage.get(i, 0))
+            answer = QMessageBox.question(
+                self,
+                APP_NAME,
+                f"El grafo abierto usa nodos de: {names}.\n\nSi las desactivas se eliminarán "
+                f"{doomed} nodo(s) (y no se podrá deshacer). ¿Continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self.runner.stop_realtime(wait=True)  # las conexiones abiertas se cierran
+        for library_id in removed:
+            for type_id in self.libraries.type_ids(library_id):
+                self.graph.remove_nodes_of_type(type_id)
+        self.libraries.set_enabled(selected)
+        self.project.libraries = self.libraries.enabled
+        self.undo_stack.clear()  # los comandos anteriores ya no corresponden al grafo
+        self.undo_stack.resetClean()  # el proyecto cambió: hay cambios sin guardar
+        self.last_result = None
+        self._update_viewer()
+        self._update_title()
+        self._update_counts()
+        self.show_message("Librerías del proyecto: " + (", ".join(selected) or "ninguna"), 5000)
         return True
 
     # -- nodos personalizados ----------------------------------------------------------
@@ -703,6 +790,7 @@ class MainWindow(QMainWindow):
         if self._confirm_discard():
             self.runner.stop_realtime(wait=True)
             self.controller.new_graph()
+            self.libraries.set_enabled([])  # cada proyecto activa las suyas
             self.project, self.project_path = ProjectData(), None
             self._apply_new_project_defaults()
             self.last_result = None

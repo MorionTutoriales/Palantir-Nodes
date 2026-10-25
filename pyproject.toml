@@ -15,10 +15,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+network = [
+    "websockets>=13",
+]
 dev = [
     "pytest>=8",
     "pytest-qt>=4.4",
     "ruff>=0.6",
+    "websockets>=13",
 ]
 
 [project.gui-scripts]
@@ -45,3 +49,4 @@ select = ["E", "F", "W", "I", "B", "UP"]
 "src/palantir_nodes/ui/custom_nodes_dialog.py" = ["E501"]
 "tests/test_custom_nodes.py" = ["E501"]
 "tests/test_custom_nodes_ui.py" = ["E501"]
+"tests/test_libraries.py" = ["E501"]

@@ -1,5 +1,6 @@
 """Nodos matemáticos."""
 
+import math
 import operator
 
 from palantir_nodes.core.types import SocketType as T
@@ -254,3 +255,45 @@ class Compare(NodeDefinition):
         ]
         line = f"{r} = bool({inputs['a']} {symbol} {inputs['b']})"
         return CodeFragment([line], {"result": r})
+
+
+_UNIT_OPTIONS = (("radians", "Radianes"), ("degrees", "Grados"))
+
+
+class _Trig(NodeDefinition):
+    """Base de seno y coseno: el ángulo entra en radianes o en grados."""
+
+    category = MATH
+    inputs = (InputSpec("angle", T.FLOAT, "Ángulo", default=0.0),)
+    outputs = _RESULT
+    params = (ParamSpec("unit", ParamKind.ENUM, "radians", label="Unidad", options=_UNIT_OPTIONS),)
+    function_name = "sin"
+
+    def process(self, ctx, inputs, params):
+        angle = inputs["angle"]
+        if params["unit"] == "degrees":
+            angle = math.radians(angle)
+        return {"result": float(getattr(math, self.function_name)(angle))}
+
+    def generate_code(self, gen, inputs, params):
+        r = gen.new_var(self.function_name)
+        angle = inputs["angle"]
+        if params["unit"] == "degrees":
+            angle = f"math.radians({angle})"
+        return CodeFragment([f"{r} = math.{self.function_name}({angle})"], {"result": r})
+
+
+@register_node
+class Sine(_Trig):
+    type_id = "math.sin"
+    label = "Sine"
+    description = "Seno del ángulo (resultado entre -1 y 1)."
+    function_name = "sin"
+
+
+@register_node
+class Cosine(_Trig):
+    type_id = "math.cos"
+    label = "Cosine"
+    description = "Coseno del ángulo (resultado entre -1 y 1)."
+    function_name = "cos"

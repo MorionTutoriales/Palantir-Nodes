@@ -31,6 +31,7 @@ py -3.13 -m venv .venv
 | `core/` | Grafo lógico, tipos de socket, validación, orden topológico, errores | No |
 | `nodes/` | Contrato `NodeDefinition`, especificaciones, registro, biblioteca | No |
 | `customnodes/` | Nodos escritos en Python: análisis estático, ejecución, biblioteca | No |
+| `libraries/` | Librerías adicionales por proyecto (hoy: red WebSocket) y su gestor | No |
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
 | `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
 | `media/` | Apertura y lectura de video, cámaras y escritores (compartido con el script exportado) | No |
@@ -185,6 +186,33 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Nodos nuevos:** `Sine` y `Cosine` (Matemáticas; radianes o grados), `Convert Color Space`
+  (imagen entre BGR, RGB, HSV, HLS, Lab, YCrCb y gris), `RGB to HSV` y `HSV to RGB` (valores de
+  color, con la escala de OpenCV: H 0-179, S y V 0-255, la misma de `Color Range`) y `Tick`.
+- **Nodo `Tick`** (Entradas): avisa cada cierto tiempo. Salidas `Tick` (verdadero solo en el
+  fotograma en que se cumple el intervalo), `Cuenta` y `Segundos`; parámetros intervalo y «Al
+  iniciar». Es una fuente: con F5 mantiene el tiempo real activo aunque no haya cámara (como
+  máximo a 60 fotogramas por segundo) y se exporta al script.
+- **Librerías por proyecto** (menú **Nodos → Librerías del proyecto…**, `Ctrl+Shift+L`): cada
+  proyecto activa las que necesita; sus nodos aparecen entonces en el menú de añadir y en el
+  buscador, el proyecto guarda cuáles están activas y el script exportado importa y pide los
+  paquetes necesarios en su encabezado. Desactivar una librería con nodos en el grafo pide
+  confirmación y los elimina. El diálogo indica si falta algún paquete y cómo instalarlo; no se
+  instala nada solo.
+  - **Red (WebSocket)** (requiere `pip install websockets`, o `pip install -e .[network]`):
+    - `WebSocket Server`: abre un servidor (dirección y puerto) y entrega `Clientes` conectados,
+      el último `Mensaje` recibido, `Mensaje nuevo` (verdadero solo en el fotograma en que llegó)
+      y `Origen`. Usa `0.0.0.0` como dirección para aceptar otros equipos.
+    - `WebSocket Client`: se conecta a un servidor que esté escuchando (reintenta cada segundo) y
+      entrega `Conectado`, `Mensaje` y `Mensaje nuevo`.
+    - Ambos envían texto a todos los conectados con las entradas `Mensaje` y `Enviar` (se envía en
+      cada fotograma en que `Enviar` sea verdadero; conéctala a un `Tick` para enviar a intervalos).
+    - El parámetro «Mensajes» decide qué pasa si llegan varios entre dos fotogramas: entregar solo
+      el último o ir entregándolos en orden, uno por fotograma.
+    - Son fuentes: el tiempo real (F5) abre y cierra las conexiones, y una ejecución automática
+      no abre nada. Solo mueven texto; para números o JSON usa un nodo personalizado que lo
+      interprete.
+    - **Seguridad:** un servidor abierto en `0.0.0.0` acepta a cualquiera de tu red.
 - **Chincheta para fijar el visor:** los nodos con imagen (los que la producen y los de salida)
   llevan una chincheta en la cabecera. Un clic deja el visor fijo en ese nodo aunque cambies la
   selección para editar otros; el título del visor añade «(fijado)». Otro clic la suelta (o fijar
@@ -280,5 +308,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (817 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (897 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

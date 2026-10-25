@@ -67,6 +67,22 @@ def rgb_to_bgr(color: tuple[int, int, int]) -> tuple[int, int, int]:
     return (int(color[2]), int(color[1]), int(color[0]))
 
 
+def rgb_to_hsv(color) -> tuple[float, float, float]:
+    """Color RGB (0-255) a HSV de OpenCV: H 0-179, S y V 0-255."""
+    rgb = np.array([[[int(c) for c in color]]], dtype=np.uint8)
+    h, s, v = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[0, 0]
+    return (float(h), float(s), float(v))
+
+
+def hsv_to_rgb(hsv) -> tuple[int, int, int]:
+    """HSV de OpenCV (H 0-179, S y V 0-255) a color RGB; los valores se recortan al rango."""
+    limits = (179, 255, 255)
+    clipped = [min(max(round(hsv[i]), 0), limits[i]) for i in range(3)]
+    cell = np.array([[clipped]], dtype=np.uint8)
+    r, g, b = cv2.cvtColor(cell, cv2.COLOR_HSV2RGB)[0, 0]
+    return (int(r), int(g), int(b))
+
+
 INTERPOLATION = {
     "linear": cv2.INTER_LINEAR,
     "nearest": cv2.INTER_NEAREST,
