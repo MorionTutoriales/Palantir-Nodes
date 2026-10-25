@@ -200,7 +200,9 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     desplegable; un valor por defecto lo vuelve opcional, y `Image = None` es una entrada de imagen
     opcional. Sin anotación se infiere del valor por defecto.
   - **Retorno → salidas**: `-> Image`, `-> float`, `-> tuple[Image, int]`…; con varias salidas se
-    nombran por las variables del `return`. Una función sin retorno es un nodo de salida (solo actúa
+    nombran por las variables del `return` (si alguna no es un nombre simple: `result_1`, `result_2`…).
+    Un `tuple[...]` en el retorno **siempre** son varias salidas; para una sola salida vectorial
+    usa `-> Vector2`, `-> Vector3` o `-> Color`. Una función sin retorno es un nodo de salida (solo actúa
     al pulsar Ejecutar, nunca en la ejecución automática ni en tiempo real).
   - Disponibles sin importar: `np`, `cv2`, `math`. Las imágenes de entrada son de **solo lectura**
     (usa `.copy()`); las de salida se normalizan a `uint8`. Los errores indican la línea del código

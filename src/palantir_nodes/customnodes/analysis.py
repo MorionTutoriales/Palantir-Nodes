@@ -434,11 +434,12 @@ def _analyze_outputs(function: ast.FunctionDef, analysis: Analysis) -> None:
         return
 
     try:
+        # En el retorno, tuple[...] siempre son varias salidas; un vector se declara con
+        # Vector2 / Vector3 / Color.
         multiple = (
             isinstance(returns, ast.Subscript)
             and _dotted(returns.value) in _TUPLE_NAMES
             and isinstance(returns.slice, ast.Tuple)
-            and not _is_vector_tuple(returns.slice)
         )
         if multiple:
             kinds = [_resolve(e, allow_literal=False).socket for e in returns.slice.elts]
@@ -452,9 +453,3 @@ def _analyze_outputs(function: ast.FunctionDef, analysis: Analysis) -> None:
     if names is None:
         names = ["result"] if len(kinds) == 1 else [f"result_{i + 1}" for i in range(len(kinds))]
     analysis.outputs.extend(OutputInfo(n, k) for n, k in zip(names, kinds, strict=True))
-
-
-def _is_vector_tuple(index: ast.Tuple) -> bool:
-    """``tuple[float, float]`` es un vector, no dos salidas."""
-    kinds = [_dotted(e) for e in index.elts]
-    return len(kinds) in (2, 3) and all(k in ("int", "float") for k in kinds)

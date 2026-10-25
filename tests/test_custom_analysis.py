@@ -269,13 +269,27 @@ def test_tuple_return_creates_several_named_outputs():
     assert [n for n, _ in outputs(a)] == ["result_1", "result_2"]  # nombres repetidos: genéricos
 
 
-def test_a_vector_return_is_one_output_not_two():
-    a = analyze("def f(img: Image) -> tuple[float, float]:\n    return 1.0, 2.0\n")
-    assert outputs(a) == [("result", T.VECTOR2)]
-    a = analyze("def f(img: Image) -> tuple[float, float, float]:\n    return 1.0, 2.0, 3.0\n")
-    assert outputs(a) == [("result", T.VECTOR3)]
-    a = analyze("def f(img: Image) -> tuple[tuple[float, float], int]:\n    return (1.0, 2.0), 3\n")
-    assert outputs(a) == [("result_1", T.VECTOR2), ("result_2", T.INTEGER)]  # vector + entero
+def analyze_return(annotation, body="return None"):
+    return analyze(f"def f(img: Image) -> {annotation}:\n    {body}\n")
+
+
+def test_tuple_return_is_always_several_outputs_and_vectors_use_their_own_type():
+    assert outputs(analyze_return("tuple[float, float]")) == [
+        ("result_1", T.FLOAT),
+        ("result_2", T.FLOAT),
+    ]
+    assert outputs(analyze_return("tuple[int, int, int]")) == [
+        ("result_1", T.INTEGER),
+        ("result_2", T.INTEGER),
+        ("result_3", T.INTEGER),
+    ]
+    named = analyze_return("tuple[float, int]", "ancho = 1.0\n    alto = 2\n    return ancho, alto")
+    assert outputs(named) == [("ancho", T.FLOAT), ("alto", T.INTEGER)]
+    assert outputs(analyze_return("Vector2")) == [("result", T.VECTOR2)]
+    assert outputs(analyze_return("Vector3")) == [("result", T.VECTOR3)]
+    assert outputs(analyze_return("Color")) == [("result", T.COLOR)]
+    nested = analyze_return("tuple[tuple[float, float], int]")
+    assert outputs(nested) == [("result_1", T.VECTOR2), ("result_2", T.INTEGER)]
 
 
 def test_functions_without_return_annotation():
