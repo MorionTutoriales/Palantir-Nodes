@@ -91,8 +91,19 @@ def read_png(path):
 def test_the_three_libraries_are_available_in_order():
     assert [lib.id for lib in available_libraries()] == ["network", "tcp", "mediapipe"]
     assert get_library("tcp").requirements == ()  # solo biblioteca estándar
-    assert [r.package for r in get_library("mediapipe").requirements] == ["mediapipe"]
-    assert get_library("mediapipe").install_command == "pip install mediapipe"
+    mediapipe = get_library("mediapipe")
+    assert mediapipe.requirements[0].package == "mediapipe" and mediapipe.requirements[0].no_deps
+    assert {r.package for r in mediapipe.requirements[1:]} == {
+        "absl-py",
+        "certifi",
+        "flatbuffers",
+        "matplotlib",
+        "sounddevice",
+    }
+    assert mediapipe.install_command.splitlines() == [
+        "pip install --no-deps mediapipe",
+        "pip install absl-py certifi flatbuffers matplotlib sounddevice",
+    ]
 
 
 def test_enabling_all_libraries_registers_every_node_without_clashes(registry, manager):
@@ -640,3 +651,58 @@ def test_realtime_script_closes_the_detectors_at_the_end(mp_registry, tmp_path, 
     code = CodeGenerator(ExecutionPlan.from_graph(g), "t").generate()
     assert "finally:" in code and "mp_close_all(_MP_STORE)" in code
     compile(code, "script", "exec")
+
+
+# -- instalación de MediaPipe sin pisar OpenCV -----------------------------------------------------------
+
+
+def test_mediapipe_is_installed_without_dependencies_so_opencv_is_never_replaced():
+    mediapipe = get_library("mediapipe")
+    steps = mediapipe.install_steps(list(mediapipe.requirements))
+    assert steps[0] == (True, ["mediapipe"])  # sin dependencias: no arrastra opencv-contrib-python
+    assert steps[1][0] is False
+    assert not any("opencv" in package for _, packages in steps for package in packages)
+    only_extras = mediapipe.install_steps([r for r in mediapipe.requirements if not r.no_deps][:2])
+    assert only_extras == [(False, ["absl-py", "certifi"])]
+    assert mediapipe.install_steps([]) == []
+
+
+def test_dialog_runs_the_install_steps_in_order_and_stops_at_the_first_failure(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from palantir_nodes.libraries import Requirement
+    from palantir_nodes.ui import libraries_dialog
+    from palantir_nodes.ui.libraries_dialog import LibrariesDialog
+
+    monkeypatch.setattr(Requirement, "installed", property(lambda self: False))
+    exit_codes = {True: 0, False: 5}  # sin dependencias: bien; con dependencias: falla
+
+    def fake_pip(packages, no_deps=False):
+        script = f"import sys; print('paso', {packages[0]!r}); sys.exit({exit_codes[no_deps]})"
+        return sys.executable, ["-c", script]
+
+    monkeypatch.setattr(libraries_dialog, "pip_command", fake_pip)
+    asked = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(
+            lambda p, t, text, *a, **k: asked.append(text) or QMessageBox.StandardButton.Yes
+        ),
+    )
+    dialog = LibrariesDialog([])
+    qtbot.addWidget(dialog)
+    dialog.show()
+    dialog.listing.setCurrentRow(2)  # MediaPipe
+    assert dialog.install_button.isVisible() and dialog.install_missing()
+    qtbot.waitUntil(lambda: dialog._process is None, timeout=20000)
+    text = dialog.log.toPlainText()
+    assert text.index("paso mediapipe") < text.index("paso absl-py")  # primero el paquete solo
+    assert text.count("$ ") == 2 and "no terminó bien (código 5)" in text
+    assert dialog.buttons.isEnabled() and dialog.listing.isEnabled()
+
+    exit_codes[True] = 2  # ahora falla el primer paso: el segundo no debe ejecutarse
+    assert dialog.install_missing()
+    qtbot.waitUntil(lambda: dialog._process is None, timeout=20000)
+    text = dialog.log.toPlainText()
+    assert text.count("$ ") == 1 and "código 2" in text and "absl-py" not in text.split("$ ", 1)[1]

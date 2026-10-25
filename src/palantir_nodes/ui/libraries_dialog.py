@@ -26,9 +26,10 @@ from palantir_nodes.libraries import LibraryInfo, available_libraries
 from palantir_nodes.ui.theme import Colors
 
 
-def pip_command(packages: list[str]) -> tuple[str, list[str]]:
+def pip_command(packages: list[str], no_deps: bool = False) -> tuple[str, list[str]]:
     """Programa y argumentos que instalan ``packages`` en el mismo Python que ejecuta la app."""
-    return sys.executable, ["-m", "pip", "install", *packages]
+    flags = ["--no-deps"] if no_deps else []
+    return sys.executable, ["-m", "pip", "install", *flags, *packages]
 
 
 def can_install() -> bool:
@@ -113,6 +114,7 @@ class LibrariesDialog(QDialog):
         self.log.hide()
         self._process: QProcess | None = None
         self._installing: LibraryInfo | None = None
+        self._steps: list[tuple[bool, list[str]]] = []
         self.warning = QLabel()
         self.warning.setWordWrap(True)
         self.warning.setStyleSheet(f"color: {Colors.LINK_INVALID};")
@@ -177,13 +179,16 @@ class LibrariesDialog(QDialog):
             return False
         if not can_install():
             return False
-        packages = [r.package for r in library.missing]
-        program, args = pip_command(packages)
+        steps = library.install_steps()
+        commands = "\n".join(
+            f"{program} {' '.join(args)}"
+            for program, args in (pip_command(packages, bare) for bare, packages in steps)
+        )
+        names = ", ".join(r.package for r in library.missing)
         answer = QMessageBox.question(
             self,
             "Instalar paquetes",
-            f"Se descargarán e instalarán de PyPI: {', '.join(packages)}.\n\n"
-            f"Comando:\n{program} {' '.join(args)}\n\n"
+            f"Se descargarán e instalarán de PyPI: {names}.\n\nComandos:\n{commands}\n\n"
             "Puede tardar unos minutos y añadir otros paquetes de los que dependen. ¿Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -192,18 +197,24 @@ class LibrariesDialog(QDialog):
             return False
         self.log.clear()
         self.log.show()
+        self._installing, self._steps = library, list(steps)
+        self.buttons.setEnabled(False)  # no se cierra el diálogo a mitad de una instalación
+        self.listing.setEnabled(False)
+        self._run_next_step()
+        return True
+
+    def _run_next_step(self) -> None:
+        bare, packages = self._steps.pop(0)
+        program, args = pip_command(packages, bare)
         self.log.appendPlainText(f"$ {program} {' '.join(args)}")
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(self._read_output)
         process.finished.connect(self._finished)
         process.errorOccurred.connect(self._failed_to_start)
-        self._process, self._installing = process, library
-        self.buttons.setEnabled(False)  # no se cierra el diálogo a mitad de una instalación
-        self.listing.setEnabled(False)
+        self._process = process
         self._update_install_button()
         process.start(program, args)
-        return True
 
     def _read_output(self) -> None:
         if self._process is not None:
@@ -220,9 +231,13 @@ class LibrariesDialog(QDialog):
         if process is None:
             return
         self._read_output()
-        self._process = self._installing = None
+        self._process = None
         process.deleteLater()
         importlib.invalidate_caches()  # que Python vea lo recién instalado sin reiniciar
+        if code == 0 and self._steps:  # queda otro comando de pip por ejecutar
+            self._run_next_step()
+            return
+        self._installing, self._steps = None, []
         self.buttons.setEnabled(True)
         self.listing.setEnabled(True)
         self._show_current(self.listing.currentItem())

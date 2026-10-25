@@ -20,5 +20,15 @@ LIBRARY = LibraryInfo(
         "~/.palantir_nodes/models; también puedes indicar tu propio archivo de modelo."
     ),
     nodes=(HandLandmarks, PoseLandmarks, FaceMesh, FaceDetection, LandmarkPoint),
-    requirements=(Requirement("mediapipe", "mediapipe"),),
+    # mediapipe declara opencv-contrib-python, que reemplazaría el cv2 que la aplicación ya
+    # tiene cargado (y Windows no deja pisar cv2.pyd). Se instala sin dependencias y se
+    # añaden aparte las que necesita para importarse.
+    requirements=(
+        Requirement("mediapipe", "mediapipe", no_deps=True),
+        Requirement("absl", "absl-py"),
+        Requirement("certifi", "certifi"),
+        Requirement("flatbuffers", "flatbuffers"),
+        Requirement("matplotlib", "matplotlib"),
+        Requirement("sounddevice", "sounddevice"),
+    ),
 )

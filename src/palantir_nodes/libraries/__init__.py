@@ -19,6 +19,9 @@ class Requirement:
 
     module: str  # nombre con el que se importa
     package: str  # nombre para ``pip install``
+    # Instalar solo este paquete, sin sus dependencias. Evita que pip reemplace paquetes
+    # que la aplicación ya tiene cargados (p. ej. ``cv2.pyd``, que Windows no deja pisar).
+    no_deps: bool = False
 
     @property
     def installed(self) -> bool:
@@ -41,9 +44,23 @@ class LibraryInfo:
         """Dependencias que no están instaladas en este equipo."""
         return [r for r in self.requirements if not r.installed]
 
+    def install_steps(
+        self, missing: list[Requirement] | None = None
+    ) -> list[tuple[bool, list[str]]]:
+        """Comandos de pip para instalar lo que falta: ``(sin_dependencias, paquetes)`` por paso."""
+        missing = self.missing if missing is None else missing
+        bare = [r.package for r in missing if r.no_deps]
+        normal = [r.package for r in missing if not r.no_deps]
+        return [(True, bare)] * bool(bare) + [(False, normal)] * bool(normal)
+
     @property
     def install_command(self) -> str:
-        return "pip install " + " ".join(r.package for r in self.requirements)
+        """Los comandos de ``pip install`` de todos los paquetes de la librería, uno por línea."""
+        steps = self.install_steps(list(self.requirements))
+        return "\n".join(
+            "pip install " + ("--no-deps " if bare else "") + " ".join(packages)
+            for bare, packages in steps
+        )
 
 
 def available_libraries() -> list[LibraryInfo]:

@@ -215,11 +215,16 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     es un mensaje**: lo que recibe se separa por saltos de línea y lo que envía termina en uno (los
     saltos que el propio texto contenga se envían como espacios). Sirve para Arduino/ESP32,
     scripts propios, `nc`, etc.
-  - **MediaPipe** (requiere `pip install mediapipe`, o `pip install -e .[mediapipe]`): `Hand
+  - **MediaPipe** (se instala con el botón del diálogo; a mano:
+    `pip install --no-deps mediapipe` y luego `pip install absl-py certifi flatbuffers matplotlib sounddevice`): `Hand
     Landmarks` (21 puntos por mano), `Pose Landmarks` (33 puntos del cuerpo), `Face Mesh` (478
     puntos) y `Face Detection` (cajas y 6 puntos clave). Cada uno dibuja sobre la imagen y entrega
     `Cantidad`, `Puntos` y `Cajas` (en píxeles); `Landmark Point` saca un punto concreto (p. ej.
     mano 0, índice 8 = punta del índice) como `Punto`, `X`, `Y` y `Encontrado`.
+    - Se instala **sin dependencias** a propósito: `mediapipe` declara `opencv-contrib-python`, que
+      reemplazaría el `cv2` que la aplicación ya tiene cargado, y Windows no deja sobrescribir
+      `cv2.pyd` mientras está en uso (`Acceso denegado`, aunque seas administrador). No hace falta
+      ejecutar nada como administrador: el entorno `.venv` es tuyo.
     - Usa la API «Tasks» de MediaPipe, que necesita un archivo de **modelo**. Si el campo «Modelo»
       está vacío se descarga el modelo oficial de Google la primera vez (necesita Internet) y se
       guarda en `~/.palantir_nodes/models` (o en la carpeta de la variable `PALANTIR_NODES_MODELS`);
@@ -337,5 +342,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (981 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (984 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

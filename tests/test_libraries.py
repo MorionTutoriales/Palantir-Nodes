@@ -652,7 +652,10 @@ def installer(monkeypatch, tmp_path):
     state = {"code": 0, "program": sys.executable}
     monkeypatch.setattr(Requirement, "installed", property(lambda self: marker.exists()))
 
-    def fake_pip(packages):
+    state["calls"] = []
+
+    def fake_pip(packages, no_deps=False):
+        state["calls"].append((no_deps, list(packages)))
         script = (
             f"import sys, pathlib; print('instalando', {packages!r}); "
             f"pathlib.Path({str(marker)!r}).write_text('x') if {state['code']} == 0 else None; "
