@@ -30,6 +30,7 @@ py -3.13 -m venv .venv
 |---|---|---|
 | `core/` | Grafo lógico, tipos de socket, validación, orden topológico, errores | No |
 | `nodes/` | Contrato `NodeDefinition`, especificaciones, registro, biblioteca | No |
+| `customnodes/` | Nodos escritos en Python: análisis estático, ejecución, biblioteca | No |
 | `ui/editor/` | Escena, vista, nodos, sockets, conexiones, comandos undo/redo | Sí |
 | `engine/` | Plan inmutable del grafo, ejecutor con caché y errores por nodo | No |
 | `media/` | Apertura y lectura de video, cámaras y escritores (compartido con el script exportado) | No |
@@ -184,6 +185,34 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Nodos personalizados en Python** (menú **Nodos**, `Ctrl+Shift+N`, también «Nuevo nodo
+  personalizado…» en el menú de añadir y el botón en Preferencias). Se escribe una función y el
+  programa la convierte en un nodo:
+  - Se usa la **última función pública** del código (las que empiezan por `_` son auxiliares; puede
+    haber `import`s y variables de módulo, que se ejecutan una sola vez).
+  - **Parámetros → entradas** según su anotación: `int`, `float`, `bool`, `str`, `Image`
+    (`np.ndarray`), `Color`, `Vector2`, `Vector3`, `Any`; `Literal["a", "b"]` crea una lista
+    desplegable; un valor por defecto lo vuelve opcional, y `Image = None` es una entrada de imagen
+    opcional. Sin anotación se infiere del valor por defecto.
+  - **Retorno → salidas**: `-> Image`, `-> float`, `-> tuple[Image, int]`…; con varias salidas se
+    nombran por las variables del `return`. Una función sin retorno es un nodo de salida (solo actúa
+    al pulsar Ejecutar, nunca en la ejecución automática ni en tiempo real).
+  - Disponibles sin importar: `np`, `cv2`, `math`. Las imágenes de entrada son de **solo lectura**
+    (usa `.copy()`); las de salida se normalizan a `uint8`. Los errores indican la línea del código
+    del nodo.
+  - El editor detecta entradas/salidas mientras se escribe, trae plantillas y resaltado de sintaxis,
+    y permite crear, editar, duplicar y borrar. Si el grafo abierto usa el nodo, pide confirmación y
+    adapta los nodos (conserva valores por nombre y quita las conexiones que dejaron de ser
+    válidas; eso limpia el historial de deshacer).
+  - Se guardan en `custom_nodes.json` de la carpeta de configuración; cada proyecto incluye las
+    definiciones que usa y, al abrirlo en otro equipo, **pregunta** si importarlas.
+  - Se exportan a Python: el código del nodo se define una vez en el script, con la misma
+    normalización de salidas que el motor.
+  - **Seguridad:** el código se ejecuta en el mismo proceso y con los permisos del usuario; abre
+    proyectos de terceros solo si confías en ellos. El análisis nunca ejecuta el código.
+  - Limitación: el código se incrusta con sangría, así que los textos multilínea de comillas
+    triples no conservan su sangría original.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
@@ -239,5 +268,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (613 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
-    persistencia, frames, edición, previsualización, preferencias y UI real).
+16. `pytest` pasa (788 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+    persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

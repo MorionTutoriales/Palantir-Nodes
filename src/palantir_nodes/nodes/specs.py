@@ -219,6 +219,8 @@ class InputSpec:
     maximum: float | None = None
     step: float | None = None
     tooltip: str = ""
+    # Entrada que puede quedar sin conectar: el nodo recibe ``None`` en su lugar.
+    optional: bool = False
 
     def __post_init__(self) -> None:
         if self.default is not None and self.type not in _EDITABLE_INPUT_KINDS:

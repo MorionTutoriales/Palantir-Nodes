@@ -12,6 +12,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from palantir_nodes.core.errors import ConnectionRejectedError, GraphError
+from palantir_nodes.core.types import is_compatible
 from palantir_nodes.core.validation import ConnectionCheck, check_connection
 
 if TYPE_CHECKING:
@@ -143,6 +144,8 @@ class GraphEventKind(Enum):
     FRAME_ADDED = auto()
     FRAME_REMOVED = auto()
     FRAME_CHANGED = auto()
+    # Cambió la definición de un tipo de nodo y se migraron sus instancias: reconstruir todo.
+    REBUILT = auto()
     CLEARED = auto()
 
 
@@ -362,6 +365,67 @@ class Graph:
             raise GraphError(f"No existe la conexión '{link_id}'") from None
         self._emit(GraphEvent(GraphEventKind.LINK_REMOVED, node_id=link.dst_node, link=link))
         return link
+
+    # -- migración de tipos ------------------------------------------------------------
+
+    def nodes_of_type(self, type_id: str) -> list[NodeInstance]:
+        return [node for node in self._nodes.values() if node.type_id == type_id]
+
+    def migrate_node_type(self, type_id: str) -> list[str]:
+        """Adapta los nodos de ``type_id`` a su definición actual del registro.
+
+        Se conservan los valores cuyo nombre sigue existiendo y siguen siendo válidos; las
+        conexiones cuyo socket ya no existe o dejó de ser compatible se eliminan. Devuelve
+        los avisos de lo que se perdió.
+        """
+        definition = self.registry.require(type_id)
+        notes: list[str] = []
+        migrated = {node.id for node in self.nodes_of_type(type_id)}
+        for node in self.nodes_of_type(type_id):
+            old_params, old_inputs = node.params, node.input_values
+            node.definition = definition
+            node.params = definition.default_params()
+            for name, value in old_params.items():
+                spec = definition.param(name)
+                if spec is not None:
+                    try:
+                        node.params[name] = spec.coerce(value)
+                    except Exception:
+                        notes.append(f"{definition.label}: '{name}' vuelve a su valor por defecto")
+            node.input_values = definition.default_input_values()
+            for name, value in old_inputs.items():
+                spec = definition.input(name)
+                value_spec = spec.value_spec() if spec else None
+                if value_spec is not None:
+                    try:
+                        node.input_values[name] = value_spec.coerce(value)
+                    except Exception:
+                        notes.append(f"{definition.label}: '{name}' vuelve a su valor por defecto")
+        for link in list(self._links.values()):
+            if link.src_node not in migrated and link.dst_node not in migrated:
+                continue
+            src, dst = self._nodes[link.src_node], self._nodes[link.dst_node]
+            out_spec = src.definition.output(link.src_socket)
+            in_spec = dst.definition.input(link.dst_socket)
+            if (
+                out_spec is None
+                or in_spec is None
+                or not is_compatible(out_spec.type, in_spec.type)
+            ):
+                del self._links[link.id]
+                notes.append(
+                    f"Se eliminó la conexión {src.definition.label}.{link.src_socket} → "
+                    f"{dst.definition.label}.{link.dst_socket}"
+                )
+        self._emit(GraphEvent(GraphEventKind.REBUILT))
+        return notes
+
+    def remove_nodes_of_type(self, type_id: str) -> int:
+        """Elimina todos los nodos de ``type_id`` (y sus conexiones). Devuelve cuántos."""
+        victims = [node.id for node in self.nodes_of_type(type_id)]
+        for node_id in victims:
+            self.remove_node(node_id)
+        return len(victims)
 
     # -- frames ------------------------------------------------------------------------
 

@@ -78,6 +78,16 @@ class NodeRegistry:
         self._types[cls.type_id] = cls
         return cls
 
+    def replace(self, cls: NodeType) -> NodeType:
+        """Registra ``cls`` sustituyendo al tipo anterior con el mismo ``type_id`` (si lo hay)."""
+        _validate_definition(cls)
+        self._types[cls.type_id] = cls
+        return cls
+
+    def unregister(self, type_id: str) -> bool:
+        """Quita un tipo del registro. ``False`` si no estaba."""
+        return self._types.pop(type_id, None) is not None
+
     def get(self, type_id: str) -> NodeType | None:
         return self._types.get(type_id)
 

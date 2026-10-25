@@ -107,7 +107,7 @@ class NodeScene(QGraphicsScene):
             item = self.frame_items.get(event.frame_id)
             if item is not None:
                 item.sync(self.graph.frame(event.frame_id))
-        elif kind is GraphEventKind.CLEARED:
+        elif kind in (GraphEventKind.CLEARED, GraphEventKind.REBUILT):
             self._rebuild()
 
     def _add_frame_item(self, frame: Frame) -> None:

@@ -23,6 +23,7 @@ _TRIGGERS = {
     GraphEventKind.LINK_ADDED,
     GraphEventKind.LINK_REMOVED,
     GraphEventKind.NODE_REMOVED,
+    GraphEventKind.REBUILT,
     GraphEventKind.CLEARED,
 }
 DEBOUNCE_MS = 60

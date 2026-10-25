@@ -20,17 +20,20 @@ from PySide6.QtWidgets import (
 from palantir_nodes import __version__
 from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent
+from palantir_nodes.customnodes.library import CustomNodeLibrary, CustomNodeValidationError
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.persistence import (
     ProjectData,
     ProjectFormatError,
     dump,
+    embedded_custom_nodes,
     load,
     read_project,
     write_project,
 )
 from palantir_nodes.preferences import Preferences, load_preferences, save_preferences
+from palantir_nodes.ui.custom_nodes_dialog import CustomNodesDialog
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
@@ -49,7 +52,9 @@ class MainWindow(QMainWindow):
     def __init__(self, registry: NodeRegistry, startup_messages: list[str] | None = None) -> None:
         super().__init__()
         self.prefs, pref_warnings = load_preferences()
-        startup_messages = [*(startup_messages or []), *pref_warnings]
+        self.custom_library = CustomNodeLibrary(registry)
+        library_warnings = self.custom_library.load()  # registra los nodos personalizados
+        startup_messages = [*(startup_messages or []), *pref_warnings, *library_warnings]
         self.registry = registry
         self.graph = Graph(registry)
         self.undo_stack = QUndoStack(self)
@@ -157,6 +162,14 @@ class MainWindow(QMainWindow):
         self.action_auto.setToolTip("Ejecutar automáticamente al modificar el grafo")
         self.action_auto.toggled.connect(self._set_auto_run)
 
+        self.action_custom_nodes = QAction("Nodos personalizados…", self)
+        self.action_custom_nodes.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        self.action_custom_nodes.setToolTip("Crear, editar y borrar nodos escritos en Python")
+        self.action_custom_nodes.triggered.connect(lambda: self.open_custom_nodes())
+        self.action_new_custom_node = QAction("Nuevo nodo personalizado…", self)
+        self.action_new_custom_node.triggered.connect(lambda: self.open_custom_nodes(new=True))
+        self.view.new_custom_node_requested.connect(lambda: self.open_custom_nodes(new=True))
+
         self.action_prefs = QAction("Preferencias…", self)
         self.action_prefs.setShortcut(QKeySequence("Ctrl+,"))
         self.action_prefs.setToolTip("Preferencias de la aplicación (Ctrl+,)")
@@ -202,6 +215,10 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.properties_dock.toggleViewAction())
         view_menu.addAction(self.viewer_dock.toggleViewAction())
+
+        nodes_menu = bar.addMenu("&Nodos")
+        nodes_menu.addAction(self.action_custom_nodes)
+        nodes_menu.addAction(self.action_new_custom_node)
 
         run_menu = bar.addMenu("E&jecución")
         run_menu.addAction(self.action_run)
@@ -324,6 +341,7 @@ class MainWindow(QMainWindow):
 
     def open_preferences(self) -> None:
         dialog = PreferencesDialog(self.prefs, self)
+        dialog.custom_nodes_requested.connect(self.open_custom_nodes)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_preferences(dialog.preferences())
 
@@ -465,7 +483,10 @@ class MainWindow(QMainWindow):
         self.project.zoom = state["zoom"]
         self.project.center = tuple(state["center"])
         try:
-            write_project(path, dump(self.graph, self.project, __version__))
+            write_project(
+                path,
+                dump(self.graph, self.project, __version__, self._custom_nodes_for_project()),
+            )
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, APP_NAME, f"No se pudo guardar el proyecto:\n{exc}")
             return False
@@ -488,10 +509,14 @@ class MainWindow(QMainWindow):
     def load_project(self, path: Path) -> bool:
         """Carga un proyecto, reemplazando el actual. Si falla, el actual no se toca."""
         try:
-            loaded, project = load(read_project(path), self.registry)
+            data = read_project(path)
+            leftovers, import_notes = self._import_embedded_custom_nodes(data)
+            loaded, project = load(data, self.registry)
         except ProjectFormatError as exc:
             QMessageBox.critical(self, APP_NAME, f"No se pudo abrir '{Path(path).name}':\n{exc}")
             return False
+        project.custom_nodes = leftovers  # los que no se importaron se conservan al guardar
+        project.warnings[:0] = import_notes
 
         self.runner.stop_realtime(wait=True)
         self.runner.auto_run = False  # evita una ejecución por cada nodo añadido
@@ -530,6 +555,100 @@ class MainWindow(QMainWindow):
                 text += f"\n… y {extra} aviso(s) más"
             QMessageBox.warning(self, APP_NAME, f"El proyecto se abrió con avisos:\n\n{text}")
         return True
+
+    # -- nodos personalizados ----------------------------------------------------------
+
+    def _count_nodes_of_type(self, type_id: str) -> int:
+        return len(self.graph.nodes_of_type(type_id))
+
+    def open_custom_nodes(self, new: bool = False) -> None:
+        """Abre el gestor de nodos personalizados (``new``: empieza creando uno)."""
+        dialog = CustomNodesDialog(
+            self.custom_library, self, usage=self._count_nodes_of_type, start_new=new
+        )
+        dialog.changed.connect(self._on_custom_nodes_changed)
+        dialog.exec()
+
+    def _on_custom_nodes_changed(self, changed: list[str], removed: list[str]) -> None:
+        """Adapta el grafo abierto cuando se edita o se borra un nodo personalizado en uso."""
+        notes: list[str] = []
+        affected = False
+        for type_id in changed:
+            if self.graph.nodes_of_type(type_id):
+                notes += self.graph.migrate_node_type(type_id)
+                affected = True
+        for type_id in removed:
+            if self.graph.remove_nodes_of_type(type_id):
+                affected = True
+        if not affected:
+            return
+        self.undo_stack.clear()  # los comandos anteriores ya no corresponden al grafo
+        self.undo_stack.resetClean()  # el grafo cambió: hay cambios sin guardar
+        self.last_result = None
+        self._update_viewer()
+        self._update_title()
+        self._update_counts()
+        if notes:
+            shown = notes[:MAX_WARNINGS_SHOWN]
+            text = "\n".join(f"• {n}" for n in shown)
+            if len(notes) > len(shown):
+                text += f"\n… y {len(notes) - len(shown)} más"
+            QMessageBox.warning(self, APP_NAME, f"Se adaptó el grafo al nodo modificado:\n\n{text}")
+
+    def _custom_nodes_for_project(self) -> list[dict]:
+        """Definiciones que se guardan en el proyecto: las que usa el grafo y las pendientes."""
+        used: dict[str, dict] = {}
+        for node in self.graph.nodes.values():
+            spec = self.custom_library.get(node.type_id)
+            if spec is not None:
+                used[spec.id] = spec.to_dict()
+        for raw in self.project.custom_nodes:  # traídas por el archivo y sin importar
+            used.setdefault(raw["id"], raw)
+        return list(used.values())
+
+    def _import_embedded_custom_nodes(self, data: dict) -> tuple[list[dict], list[str]]:
+        """Ofrece importar los nodos personalizados que trae un proyecto.
+
+        Devuelve las definiciones que quedaron sin importar y avisos para mostrar al abrir.
+        """
+        specs, _ = embedded_custom_nodes(data)
+        library = self.custom_library
+        notes: list[str] = []
+        pending = [s for s in specs if s.id not in library.entries]
+        for spec in specs:
+            known = library.entries.get(spec.id)
+            if known is not None and known.code != spec.code:
+                notes.append(
+                    f"El proyecto trae otra versión de '{spec.label}'; se usa la de tu biblioteca"
+                )
+        if not pending:
+            return [], notes
+        names = ", ".join(sorted(s.label for s in pending))
+        answer = QMessageBox.question(
+            self,
+            APP_NAME,
+            f"Este proyecto incluye {len(pending)} nodo(s) personalizado(s) con código Python: "
+            f"{names}.\n\nSi los importas, ese código se ejecutará en tu equipo con tus permisos. "
+            "Impórtalos solo si confías en el origen del proyecto.\n\n"
+            "¿Importarlos a tu biblioteca de nodos?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            notes.append(
+                "No se importaron los nodos personalizados: sus nodos se conservan sin mostrarse"
+            )
+            return [s.to_dict() for s in pending], notes
+        leftovers: list[dict] = []
+        for spec in pending:
+            try:
+                library.import_spec(spec)
+            except CustomNodeValidationError as exc:
+                leftovers.append(spec.to_dict())
+                notes.append(f"No se pudo importar '{spec.label}': {exc.issues[0]}")
+            except OSError:
+                notes.append(f"'{spec.label}' se importó pero no se pudo guardar en tu biblioteca")
+        return leftovers, notes
 
     def export_python(self) -> None:
         try:

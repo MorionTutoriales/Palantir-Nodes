@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -27,6 +29,8 @@ from palantir_nodes.ui.theme import Colors
 
 
 class PreferencesDialog(QDialog):
+    custom_nodes_requested = Signal()
+
     def __init__(self, prefs: Preferences, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Preferencias")
@@ -67,6 +71,11 @@ class PreferencesDialog(QDialog):
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {Colors.TEXT_DIM};")
         form.addRow(note)
+
+        self.custom_nodes_button = QPushButton("Nodos personalizados…")
+        self.custom_nodes_button.setToolTip("Crear, editar y borrar nodos escritos en Python")
+        self.custom_nodes_button.clicked.connect(self.custom_nodes_requested.emit)
+        general.layout().addRow(self.custom_nodes_button)
 
         location = QLabel(f"Se guardan en: {preferences_path()}")
         location.setWordWrap(True)

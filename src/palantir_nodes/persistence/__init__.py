@@ -7,7 +7,12 @@ from palantir_nodes.persistence.format import (
     ProjectFormatError,
     migrate,
 )
-from palantir_nodes.persistence.serializer import ProjectData, dump, load
+from palantir_nodes.persistence.serializer import (
+    ProjectData,
+    dump,
+    embedded_custom_nodes,
+    load,
+)
 
 __all__ = [
     "CURRENT_VERSION",
@@ -15,6 +20,7 @@ __all__ = [
     "ProjectData",
     "ProjectFormatError",
     "dump",
+    "embedded_custom_nodes",
     "load",
     "migrate",
     "read_project",

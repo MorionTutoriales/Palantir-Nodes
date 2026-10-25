@@ -23,7 +23,7 @@ _RESERVED = (
     | set(dir(builtins))
     | set(helpers.HELPERS)
     | {"cv2", "np", "os", "sys", "main", "show", "node", "exc", "max_frames", "frame_count"}
-    | {"args", "limit"}
+    | {"args", "limit", "math"}
 )
 
 _MAIN_STATIC = 'if __name__ == "__main__":\n    main(show="--no-show" not in sys.argv[1:])\n'
@@ -60,6 +60,9 @@ class CodeGenerator:
         self._helpers: set[str] = set()
         self._wanted: set[str] = set()
         self._windows: dict[str, int] = {}
+        self._defined: dict[str, str] = {}
+        self._prelude: list[str] = []
+        self._module_code: list[str] = []
 
     # -- API para los nodos ------------------------------------------------------------
 
@@ -83,6 +86,23 @@ class CodeGenerator:
 
     def lit(self, value: Any) -> str:
         return repr(value)
+
+    def define_once(self, key: str, hint: str) -> tuple[str, bool]:
+        """Nombre de algo que se define una sola vez en el script: ``(nombre, es_nuevo)``."""
+        if key in self._defined:
+            return self._defined[key], False
+        name = self.new_var(hint)
+        self._defined[key] = name
+        return name, True
+
+    def add_prelude(self, line: str) -> None:
+        """Línea de nivel de módulo que va antes de las definiciones (sin repetirse)."""
+        if line not in self._prelude:
+            self._prelude.append(line)
+
+    def add_module_code(self, lines: list[str]) -> None:
+        """Bloque de nivel de módulo (p. ej. el código de un nodo personalizado)."""
+        self._module_code.append("\n".join(lines))
 
     def window_name(self, label: str) -> str:
         count = self._windows.get(label, 0) + 1
@@ -166,7 +186,7 @@ class CodeGenerator:
                 continue
             connected = self.plan.incoming.get(node_id, {})
             for spec in d.inputs:
-                if spec.name not in connected and not spec.has_default:
+                if spec.name not in connected and not spec.has_default and not spec.optional:
                     problems.append(
                         ExportProblem(
                             node_id, f"'{d.label}': falta conectar '{spec.display_label}'"
@@ -188,6 +208,8 @@ class CodeGenerator:
                 src_type = self.plan.nodes[src_id].definition.output(sock).type
                 conv = conversion_between(src_type, spec.type)
                 result[spec.name] = conv.template.format(expr) if conv else expr
+            elif spec.optional and spec.name not in node.input_values:
+                result[spec.name] = "None"
             else:
                 result[spec.name] = self.lit(node.input_values[spec.name])
         return result
@@ -271,10 +293,14 @@ class CodeGenerator:
         helper_src = "\n\n\n".join(helpers.HELPERS[n].source for n in names)
         code = "\n".join(self._main_function(body, pre, setup, cleanup, realtime))
 
-        text = helper_src + "\n" + code
+        prelude_src = "\n".join(self._prelude)
+        module_src = "\n\n\n".join(self._module_code)
+        text = "\n".join([prelude_src, helper_src, module_src, code])
         imports = ["import sys"]
         if re.search(r"\bos\.", text):
             imports.append("import os")
+        if re.search(r"\bmath\.", text):
+            imports.append("import math")
         imports += ["", "import cv2"]
         if re.search(r"\bnp\.", text):
             imports.append("import numpy as np")
@@ -289,8 +315,12 @@ class CodeGenerator:
             '"""\n\n'
         )
         parts = [header + "\n".join(imports)]
+        if prelude_src:
+            parts.append(prelude_src)
         if helper_src:
             parts.append(helper_src)
+        if module_src:
+            parts.append(module_src)
         parts.append(code)
         parts.append(_MAIN_REALTIME if realtime else _MAIN_STATIC)
         return "\n\n\n".join(parts)

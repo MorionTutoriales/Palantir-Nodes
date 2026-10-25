@@ -256,7 +256,7 @@ class PropertiesPanel(QWidget):
     # -- eventos del grafo -------------------------------------------------------------
 
     def _on_graph_event(self, event: GraphEvent) -> None:
-        if event.kind is GraphEventKind.CLEARED:
+        if event.kind in (GraphEventKind.CLEARED, GraphEventKind.REBUILT):
             self.show_selection([])
             return
         if event.kind in (GraphEventKind.FRAME_CHANGED, GraphEventKind.FRAME_REMOVED):

@@ -206,6 +206,9 @@ class Executor:
             elif spec.has_default:
                 value = node.input_values[spec.name]
                 parts.append((spec.name, "value", repr(value)))
+            elif spec.optional:
+                value = None
+                parts.append((spec.name, "none"))
             else:
                 raise ValueError(f"Falta conectar la entrada '{spec.display_label}'")
             inputs[spec.name] = value

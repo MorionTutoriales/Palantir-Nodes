@@ -20,6 +20,7 @@ from palantir_nodes.core.graph import (
     Link,
     normalize_frame_fields,
 )
+from palantir_nodes.customnodes.spec import CustomNodeSpec
 from palantir_nodes.nodes.registry import NodeRegistry
 from palantir_nodes.persistence.format import (
     CURRENT_VERSION,
@@ -42,10 +43,22 @@ class ProjectData:
     center: tuple[float, float] = (0.0, 0.0)
     preserved_nodes: list[dict[str, Any]] = field(default_factory=list)
     preserved_links: list[dict[str, Any]] = field(default_factory=list)
+    # Definiciones de nodos personalizados incrustadas en el archivo y aún no importadas.
+    custom_nodes: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
-def dump(graph: Graph, project: ProjectData, app_version: str = "") -> dict[str, Any]:
+def dump(
+    graph: Graph,
+    project: ProjectData,
+    app_version: str = "",
+    custom_nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Diccionario JSON del proyecto.
+
+    ``custom_nodes`` son las definiciones (``CustomNodeSpec.to_dict``) de los nodos
+    personalizados que usa el grafo, para que el proyecto se pueda abrir en otro equipo.
+    """
     nodes = [node.to_dict() for node in graph.nodes.values()] + list(project.preserved_nodes)
     links = [link.to_dict() for link in graph.links.values()] + list(project.preserved_links)
     return {
@@ -64,6 +77,7 @@ def dump(graph: Graph, project: ProjectData, app_version: str = "") -> dict[str,
         "nodes": nodes,
         "links": links,
         "frames": [frame.to_dict() for frame in graph.frames.values()],
+        "custom_nodes": list(custom_nodes or []),
     }
 
 
@@ -197,10 +211,29 @@ def load(data: dict[str, Any], registry: NodeRegistry) -> tuple[Graph, ProjectDa
         except PalantirError as exc:
             warnings.append(f"Conexión #{index} omitida: {exc}")
 
+    specs, spec_warnings = embedded_custom_nodes(data)
+    project.custom_nodes = [spec.to_dict() for spec in specs]
+    warnings.extend(spec_warnings)
+
     # 'frames' es opcional: los proyectos anteriores a los frames simplemente no lo tienen.
     for index, raw in enumerate(data.get("frames", []), start=1):
         _load_frame(graph, raw, index, warnings)
     return graph, project
+
+
+def embedded_custom_nodes(data: dict[str, Any]) -> tuple[list[CustomNodeSpec], list[str]]:
+    """Definiciones de nodos personalizados incrustadas en el proyecto (las inválidas se omiten)."""
+    raw = data.get("custom_nodes", []) if isinstance(data, dict) else []
+    if not isinstance(raw, list):
+        return [], ["'custom_nodes' no es una lista (se ignora)"]
+    specs: list[CustomNodeSpec] = []
+    warnings: list[str] = []
+    for index, item in enumerate(raw, start=1):
+        try:
+            specs.append(CustomNodeSpec.from_dict(item))
+        except ValueError as exc:
+            warnings.append(f"Nodo personalizado incrustado #{index} omitido: {exc}")
+    return specs, warnings
 
 
 _FRAME_NUMBERS = ("x", "y", "width", "height")

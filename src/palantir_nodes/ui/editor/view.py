@@ -39,6 +39,7 @@ ZOOM_STEP = 1.15
 
 class NodeView(QGraphicsView):
     zoom_changed = Signal(float)
+    new_custom_node_requested = Signal()
 
     def __init__(
         self, scene: NodeScene, controller: EditorController, registry: NodeRegistry, parent=None
@@ -322,6 +323,7 @@ class NodeView(QGraphicsView):
         search = menu.addAction("Buscar…")
         search.setShortcut(QKeySequence("Ctrl+F"))
         new_frame = menu.addAction("Añadir frame aquí")
+        new_custom = menu.addAction("Nuevo nodo personalizado…")
         menu.addSeparator()
         for category, members in self.registry.by_category().items():
             sub = menu.addMenu(category)
@@ -336,6 +338,8 @@ class NodeView(QGraphicsView):
             self.show_search(global_pos, scene_pos)
         elif chosen is new_frame:
             self.controller.add_frame(scene_pos.x(), scene_pos.y())
+        elif chosen is new_custom:
+            self.new_custom_node_requested.emit()
         elif chosen is not None and chosen.data():
             self.controller.add_node(chosen.data(), scene_pos)
 
