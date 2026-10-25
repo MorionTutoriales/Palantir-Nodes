@@ -21,7 +21,7 @@ from palantir_nodes import __version__
 from palantir_nodes.codegen import CodeGenerator, ExportError
 from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.customnodes.library import CustomNodeLibrary, CustomNodeValidationError
-from palantir_nodes.customnodes.paths import apply_import_paths
+from palantir_nodes.customnodes.paths import applied_paths, apply_import_paths
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.libraries import available_libraries, get_library
 from palantir_nodes.libraries.manager import LibraryManager
@@ -37,6 +37,7 @@ from palantir_nodes.persistence import (
     write_project,
 )
 from palantir_nodes.preferences import Preferences, load_preferences, save_preferences
+from palantir_nodes.ui.compile_dialog import CompileDialog
 from palantir_nodes.ui.custom_nodes_dialog import CustomNodesDialog
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
@@ -159,6 +160,12 @@ class MainWindow(QMainWindow):
         self.action_export.setShortcut(QKeySequence("Ctrl+E"))
         self.action_export.setToolTip("Exportar el grafo como un script Python independiente")
         self.action_export.triggered.connect(self.export_python)
+        self.action_compile = QAction("Compilar a ejecutable…", self)
+        self.action_compile.setShortcut(QKeySequence("Ctrl+Shift+E"))
+        self.action_compile.setToolTip(
+            "Convertir el grafo en un programa (.exe) que funciona sin la aplicación ni Python"
+        )
+        self.action_compile.triggered.connect(self.compile_executable)
         self.action_previews = QAction("Previsualizaciones en los nodos", self)
         self.action_previews.setCheckable(True)
         self.action_previews.setChecked(True)
@@ -206,6 +213,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.action_save_as)
         file_menu.addSeparator()
         file_menu.addAction(self.action_export)
+        file_menu.addAction(self.action_compile)
         file_menu.addSeparator()
         file_menu.addAction(self.action_quit)
 
@@ -793,13 +801,34 @@ class MainWindow(QMainWindow):
                 notes.append(f"'{spec.label}' se importó pero no se pudo guardar en tu biblioteca")
         return leftovers, notes
 
-    def export_python(self) -> None:
+    def _generate_script(self) -> str | None:
+        """Código Python del grafo, o ``None`` (tras avisar) si no se puede exportar."""
         try:
-            code = CodeGenerator(ExecutionPlan.from_graph(self.graph), __version__).generate()
+            return CodeGenerator(ExecutionPlan.from_graph(self.graph), __version__).generate()
         except ExportError as exc:
             self.scene.select_nodes([p.node_id for p in exc.problems if p.node_id])
             problems = "\n".join(f"• {p.message}" for p in exc.problems)
             QMessageBox.warning(self, APP_NAME, f"No se puede exportar el grafo:\n\n{problems}")
+            return None
+
+    def compile_executable(self) -> None:
+        """Abre el diálogo que convierte el grafo en un ejecutable independiente."""
+        code = self._generate_script()
+        if code is None:
+            return
+        folder = str(self.project_path.parent / "ejecutables") if self.project_path else ""
+        dialog = CompileDialog(
+            code,
+            self,
+            name=self.project_name,
+            folder=folder,
+            search_paths=applied_paths(),
+        )
+        dialog.exec()
+
+    def export_python(self) -> None:
+        code = self._generate_script()
+        if code is None:
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Exportar a Python", "grafo.py", "Python (*.py)"

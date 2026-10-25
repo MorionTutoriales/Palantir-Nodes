@@ -186,6 +186,18 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Compilar a ejecutable** (**Archivo → Compilar a ejecutable…**, `Ctrl+Shift+E`): convierte el grafo
+  en un programa que funciona **sin la aplicación ni Python** (solo en el sistema operativo donde se
+  compila). Genera el mismo script que «Exportar Python» y lo compila con PyInstaller usando el Python
+  de la aplicación; si PyInstaller no está instalado, pide permiso y lo instala con pip. Opciones:
+  nombre, carpeta de salida, un solo archivo o carpeta, y mostrar u ocultar la consola. El avance se
+  ve en el diálogo y los archivos temporales se borran al terminar.
+  - Las rutas de importación de los nodos personalizados se pasan a PyInstaller (`--paths`) y los
+    grafos con MediaPipe se compilan con `--collect-all mediapipe`.
+  - Comprobado de verdad: un grafo sencillo (~60 MB, ~40 s) y uno con MediaPipe (~110 MB, ~75 s) se
+    compilaron y se ejecutaron sin la aplicación (con los modelos en `PALANTIR_NODES_MODELS` o
+    `~/.palantir_nodes/models`). Las rutas de archivos del grafo (imágenes, videos) son las de este
+    equipo, igual que en el script exportado.
 - **Conversiones** (categoría nueva): `Number to String` (con decimales), `String to Number` (acepta
   coma decimal; si no es un número usa un valor por defecto o muestra un error, a elección),
   `Integer to Float`, `Float to Integer` (piso, techo, redondeo o truncado) y los de color
@@ -358,5 +370,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (1029 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (1048 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).
