@@ -41,6 +41,7 @@ class ProjectData:
     previews: bool = True
     zoom: float = 1.0
     center: tuple[float, float] = (0.0, 0.0)
+    pinned_node: str | None = None  # nodo en el que estaba fijado el visor
     preserved_nodes: list[dict[str, Any]] = field(default_factory=list)
     preserved_links: list[dict[str, Any]] = field(default_factory=list)
     # Definiciones de nodos personalizados incrustadas en el archivo y aún no importadas.
@@ -73,6 +74,7 @@ def dump(
         "editor": {
             "zoom": project.zoom,
             "center": [project.center[0], project.center[1]],
+            "pinned_node": project.pinned_node,
         },
         "nodes": nodes,
         "links": links,
@@ -143,6 +145,9 @@ def load(data: dict[str, Any], registry: NodeRegistry) -> tuple[Graph, ProjectDa
     zoom = _number(editor.get("zoom"))
     if zoom is not None and zoom > 0:
         project.zoom = zoom
+    pinned = editor.get("pinned_node")
+    if isinstance(pinned, str) and pinned:
+        project.pinned_node = pinned
     center = editor.get("center")
     if isinstance(center, list) and len(center) == 2:
         cx, cy = _number(center[0]), _number(center[1])

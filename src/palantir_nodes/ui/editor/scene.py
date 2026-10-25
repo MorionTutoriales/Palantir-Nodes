@@ -39,6 +39,7 @@ class NodeScene(QGraphicsScene):
     link_dropped = Signal(str, str, bool, QPointF)
     # (nodo, "param" | "input", nombre, rectángulo del campo en la escena)
     field_edit_requested = Signal(str, str, str, QRectF)
+    pin_requested = Signal(str)  # clic en la chincheta de un nodo
 
     def __init__(self, graph: Graph, controller: EditorController, parent=None) -> None:
         super().__init__(parent)
@@ -49,6 +50,7 @@ class NodeScene(QGraphicsScene):
         self.node_items: dict[str, NodeItem] = {}
         self.link_items: dict[str, LinkItem] = {}
         self.frame_items: dict[str, FrameItem] = {}
+        self.pinned_id: str | None = None  # nodo en el que está fijado el visor
         self.suppress_node_moves = False  # lo activa un frame mientras arrastra sus nodos
         self._links_by_node: dict[str, set[str]] = {}
         self._drag: _LinkDrag | None = None
@@ -117,6 +119,7 @@ class NodeScene(QGraphicsScene):
 
     def _add_node_item(self, node: NodeInstance) -> None:
         item = NodeItem(node)
+        item.set_pinned(node.id == self.pinned_id)
         item.setPos(*node.position)
         self.addItem(item)
         self.node_items[node.id] = item
@@ -152,6 +155,12 @@ class NodeScene(QGraphicsScene):
         item = self.node_items.get(node_id)
         if item is not None:
             item.set_connected_inputs(self.graph.connected_inputs(node_id))
+
+    def set_pinned(self, node_id: str | None) -> None:
+        """Marca la chincheta del nodo en el que está fijado el visor (``None`` la quita)."""
+        self.pinned_id = node_id
+        for item_id, item in self.node_items.items():
+            item.set_pinned(item_id == node_id)
 
     def apply_previews(self, previews: dict[str, np.ndarray]) -> None:
         """Muestra la miniatura de cada nodo (y quita la de los que ya no tienen imagen)."""

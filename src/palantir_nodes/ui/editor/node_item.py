@@ -17,6 +17,7 @@ from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, 
 from PySide6.QtWidgets import QGraphicsItem, QStyle
 
 from palantir_nodes.core.graph import NodeInstance
+from palantir_nodes.core.types import SocketType
 from palantir_nodes.nodes.categories import get_category
 from palantir_nodes.nodes.specs import ParamKind, ParamSpec, resolve_slider
 from palantir_nodes.ui.editor.field_values import NUMERIC_KINDS, scrub_value
@@ -60,7 +61,9 @@ class NodeItem(QGraphicsItem):
         self.setAcceptHoverEvents(True)
         self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.setZValue(1)
-        self.setToolTip(self.definition.description or self.definition.label)
+        self.status: str | None = None
+        self.status_message = ""
+        self.setToolTip(self._base_tooltip())
 
         self._header_color = QColor(get_category(self.definition.category).color)
         self._title_font = QFont()
@@ -70,9 +73,11 @@ class NodeItem(QGraphicsItem):
         self._font.setPointSizeF(8.5)
         self._connected: set[str] = set()
         self._hover_row: _Row | None = None
+        self._hover_pin = False
         self._preview_pixmap: QPixmap | None = None
         self._preview_size = (0.0, 0.0)
         self._field_press: dict | None = None
+        self.pinned = False  # el visor está fijado en este nodo
         self.status: str | None = None
         self.status_message = ""
 
@@ -105,6 +110,39 @@ class NodeItem(QGraphicsItem):
             y += self.ROW
         self._base_height = y + self.PAD
         self._height = self._base_height
+
+    @property
+    def pinnable(self) -> bool:
+        """Nodos con imagen: producen una o (los de salida) la reciben, y el visor puede fijarse."""
+        definition = self.definition
+        if any(o.type is SocketType.IMAGE for o in definition.outputs):
+            return True
+        return not definition.outputs and any(i.type is SocketType.IMAGE for i in definition.inputs)
+
+    def pin_rect(self) -> QRectF:
+        return QRectF(self.WIDTH - 42, 4, 16, 16)
+
+    def set_pinned(self, pinned: bool) -> None:
+        if pinned != self.pinned:
+            self.pinned = pinned
+            self.update()
+
+    def _paint_pin(self, painter: QPainter) -> None:
+        rect = self.pin_rect()
+        hovered = self._hover_pin
+        painter.save()
+        painter.translate(rect.center())
+        painter.rotate(35)
+        if self.pinned:
+            painter.setPen(QPen(QColor("#3A2E0A"), 1))
+            painter.setBrush(QColor("#F2C14E"))
+        else:
+            painter.setPen(QPen(QColor("#FFFFFF" if hovered else "#E4B8C0"), 1.2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(QRectF(-3.5, -7, 7, 5), 1.5, 1.5)  # cabeza
+        painter.drawLine(QPointF(-5, -2), QPointF(5, -2))  # base
+        painter.drawLine(QPointF(0, -2), QPointF(0, 7))  # aguja
+        painter.restore()
 
     @property
     def height(self) -> float:
@@ -154,13 +192,18 @@ class NodeItem(QGraphicsItem):
     def refresh(self) -> None:
         self.update()
 
+    def _base_tooltip(self) -> str:
+        base = self.definition.description or self.definition.label
+        if self.status:
+            return f"{base}\n\n⚠ {self.status_message}"
+        return base
+
     def set_status(self, kind: str | None, message: str = "") -> None:
         """``kind``: ``"error"`` (falló), ``"blocked"`` (depende de uno que falló) o ``None``."""
         if (kind, message) == (self.status, self.status_message):
             return
         self.status, self.status_message = kind, message
-        base = self.definition.description or self.definition.label
-        self.setToolTip(f"{base}\n\n⚠ {message}" if kind else base)
+        self.setToolTip(self._base_tooltip())
         self.update()
 
     # -- geometría ---------------------------------------------------------------------
@@ -209,10 +252,14 @@ class NodeItem(QGraphicsItem):
             painter.setPen(QColor("#FFFFFF"))
             painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, "!")
 
+        if self.pinnable:
+            self._paint_pin(painter)
+
         painter.setFont(self._title_font)
         painter.setPen(QColor(Colors.NODE_TEXT))
         metrics = QFontMetricsF(self._title_font)
-        title_rect = QRectF(8, 0, self.WIDTH - 16, self.HEADER)
+        reserved = 48 if self.pinnable else 16
+        title_rect = QRectF(8, 0, self.WIDTH - reserved, self.HEADER)
         title = metrics.elidedText(
             self.definition.label, Qt.TextElideMode.ElideRight, title_rect.width()
         )
@@ -374,7 +421,20 @@ class NodeItem(QGraphicsItem):
             self._hover_row = row
             self.update()
 
+    def _set_hover_pin(self, hovered: bool) -> None:
+        if hovered != self._hover_pin:
+            self._hover_pin = hovered
+            self.update()
+
     def hoverMoveEvent(self, event) -> None:
+        over_pin = self.pinnable and self.pin_rect().contains(event.pos())
+        self._set_hover_pin(over_pin)
+        if over_pin:
+            self._set_hover_row(None)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("Fijar el visor en este nodo" if not self.pinned else "Soltar el visor")
+            return
+        self.setToolTip(self._base_tooltip())
         row = self.field_at(event.pos())
         self._set_hover_row(row)
         if row is None:
@@ -386,11 +446,20 @@ class NodeItem(QGraphicsItem):
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event) -> None:
+        self._set_hover_pin(False)
         self._set_hover_row(None)
         self.unsetCursor()
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.pinnable
+            and self.pin_rect().contains(event.pos())
+        ):
+            self.scene().pin_requested.emit(self.node_id)
+            event.accept()
+            return
         row = self.field_at(event.pos()) if event.button() == Qt.MouseButton.LeftButton else None
         if row is None:
             super().mousePressEvent(event)

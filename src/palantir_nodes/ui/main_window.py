@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from palantir_nodes import __version__
 from palantir_nodes.codegen import CodeGenerator, ExportError
-from palantir_nodes.core.graph import Graph, GraphEvent
+from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.customnodes.library import CustomNodeLibrary, CustomNodeValidationError
 from palantir_nodes.engine.plan import ExecutionPlan
 from palantir_nodes.nodes.registry import NodeRegistry
@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
     def __init__(self, registry: NodeRegistry, startup_messages: list[str] | None = None) -> None:
         super().__init__()
         self.prefs, pref_warnings = load_preferences()
+        self.pinned_node: str | None = None  # nodo en el que está fijado el visor
         self.custom_library = CustomNodeLibrary(registry)
         library_warnings = self.custom_library.load()  # registra los nodos personalizados
         startup_messages = [*(startup_messages or []), *pref_warnings, *library_warnings]
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self._create_statusbar()
 
         self.scene.selectionChanged.connect(self._on_selection_changed)
+        self.scene.pin_requested.connect(self._toggle_pin)
         self.runner.started.connect(lambda: self.show_message("Procesando…", 0))
         self.runner.finished.connect(self._on_run_finished)
         self.runner.realtime_changed.connect(self._on_realtime_changed)
@@ -277,6 +279,25 @@ class MainWindow(QMainWindow):
 
     def _on_graph_event(self, event: GraphEvent) -> None:
         self._update_counts()
+        pinned = self.pinned_node
+        if pinned is not None and (
+            event.kind is GraphEventKind.CLEARED
+            or (event.kind is GraphEventKind.NODE_REMOVED and event.node_id == pinned)
+        ):
+            self._set_pinned(None)
+
+    def _toggle_pin(self, node_id: str) -> None:
+        self._set_pinned(None if node_id == self.pinned_node else node_id)
+
+    def _set_pinned(self, node_id: str | None) -> None:
+        """Fija el visor en un nodo (``None`` lo suelta): deja de seguir a la selección."""
+        self.pinned_node = node_id
+        self.scene.set_pinned(node_id)
+        self._update_viewer()
+        if node_id is not None:
+            self.show_message(
+                "Visor fijado en este nodo (clic en la chincheta para soltarlo)", 4000
+            )
 
     def _on_selection_changed(self) -> None:
         # La escena emite selectionChanged también mientras se destruye.
@@ -404,7 +425,9 @@ class MainWindow(QMainWindow):
         self._update_viewer()
 
     def _viewer_target(self) -> str | None:
-        """Nodo cuya imagen se muestra: el seleccionado, o el primer Image Viewer."""
+        """Nodo cuya imagen se muestra: el fijado, el seleccionado o el primer Image Viewer."""
+        if self.pinned_node in self.graph.nodes:
+            return self.pinned_node
         selected = self.scene.selected_node_ids()
         if len(selected) == 1:
             return selected[0]
@@ -422,6 +445,8 @@ class MainWindow(QMainWindow):
             )
             return
         label = self.graph.node(node_id).definition.label
+        if node_id == self.pinned_node:
+            label += " (fijado)"
         if node_id in result.errors:
             self.viewer.show_message(result.errors[node_id], error=True, source=label)
         elif node_id in result.blocked:
@@ -480,6 +505,7 @@ class MainWindow(QMainWindow):
         self.project.name = path.stem
         self.project.auto_run = self.runner.auto_run
         self.project.previews = self.runner.preview_enabled
+        self.project.pinned_node = self.pinned_node
         self.project.zoom = state["zoom"]
         self.project.center = tuple(state["center"])
         try:
@@ -529,6 +555,8 @@ class MainWindow(QMainWindow):
             self.graph.add_frame(frame)
 
         self.project, self.project_path = project, Path(path)
+        self.pinned_node = None
+        self._set_pinned(project.pinned_node if project.pinned_node in self.graph.nodes else None)
         self.last_result = None
         self.undo_stack.setClean()
         self.view.restore_state(project.zoom, project.center)

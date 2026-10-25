@@ -185,6 +185,11 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Chincheta para fijar el visor:** los nodos con imagen (los que la producen y los de salida)
+  llevan una chincheta en la cabecera. Un clic deja el visor fijo en ese nodo aunque cambies la
+  selección para editar otros; el título del visor añade «(fijado)». Otro clic la suelta (o fijar
+  otro nodo la mueve) y se vuelve a seguir la selección. Se guarda en el proyecto; si el nodo se
+  borra, se suelta sola.
 - **Nodo `Slider`** (categoría Entrada): el valor se ajusta con un deslizador dentro del nodo
   (clic o arrastre; doble clic para escribirlo). En las propiedades se eligen el **mínimo**, el
   **máximo** y **Solo enteros**. Los extremos al revés se intercambian y el valor siempre queda
@@ -275,5 +280,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (806 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (817 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).
