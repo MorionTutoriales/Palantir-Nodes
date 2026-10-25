@@ -6,6 +6,7 @@ El paquete ``websockets`` se importa al arrancar, no al cargar este módulo.
 from __future__ import annotations
 
 import asyncio
+import sys
 
 from palantir_nodes.libraries.link import MAX_PENDING, LinkBase  # noqa: F401
 
@@ -17,9 +18,10 @@ class WebSocketLink(LinkBase):
         try:
             import websockets.asyncio.client  # noqa: F401
             import websockets.asyncio.server  # noqa: F401
-        except ImportError:
+        except ImportError as exc:
             raise ValueError(
-                "Falta instalar el paquete 'websockets' 13 o superior (pip install -U websockets)"
+                f"No se pudo cargar 'websockets' 13 o superior ({exc}). Instálalo en el Python que "
+                f'ejecuta esto: "{sys.executable}" -m pip install -U websockets'
             ) from None
 
     async def _serve(self) -> None:

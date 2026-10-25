@@ -204,8 +204,12 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   proyecto activa las que necesita; sus nodos aparecen entonces en el menú de añadir y en el
   buscador, el proyecto guarda cuáles están activas y el script exportado importa y pide los
   paquetes necesarios en su encabezado. Desactivar una librería con nodos en el grafo pide
-  confirmación y los elimina. El diálogo indica si falta algún paquete y cómo instalarlo; no se
-  instala nada solo.
+  confirmación y los elimina. El diálogo indica si falta algún paquete y trae el botón **Instalar paquetes que faltan**:
+  pide confirmación mostrando el comando y ejecuta `pip install` con **el mismo Python que ejecuta la
+  aplicación** (`sys.executable`), con el avance en pantalla; no se instala nada sin pulsarlo. Si
+  instalas a mano, usa ese mismo Python (`.venv\Scripts\python -m pip install mediapipe`): un `pip`
+  de otro entorno no lo verá la aplicación. Si un paquete está instalado pero falla al cargarse,
+  el nodo muestra el error original y el comando exacto.
   - **Red (TCP)** (solo biblioteca estándar, sin instalar nada): `TCP Server` y `TCP Client` con las
     mismas entradas y salidas que los de WebSocket. TCP es un flujo de bytes, así que **cada línea
     es un mensaje**: lo que recibe se separa por saltos de línea y lo que envía termina en uno (los
@@ -333,5 +337,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (971 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (981 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
 from html import escape
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -12,6 +14,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -19,6 +24,16 @@ from PySide6.QtWidgets import (
 
 from palantir_nodes.libraries import LibraryInfo, available_libraries
 from palantir_nodes.ui.theme import Colors
+
+
+def pip_command(packages: list[str]) -> tuple[str, list[str]]:
+    """Programa y argumentos que instalan ``packages`` en el mismo Python que ejecuta la app."""
+    return sys.executable, ["-m", "pip", "install", *packages]
+
+
+def can_install() -> bool:
+    """La instalación desde la app necesita un Python con pip (no una app empaquetada)."""
+    return not getattr(sys, "frozen", False)
 
 
 def library_html(library: LibraryInfo) -> str:
@@ -40,8 +55,9 @@ def library_html(library: LibraryInfo) -> str:
         parts.append(f"<p>Paquetes necesarios:</p><ul>{''.join(rows)}</ul>")
         if library.missing:
             parts.append(
-                "<p>Para instalarlo, en la terminal de este proyecto:<br>"
-                f"<code>{escape(library.install_command)}</code></p>"
+                "<p>Pulsa «Instalar paquetes que faltan», o hazlo a mano en la terminal con "
+                "el Python de esta aplicación:<br>"
+                f"<code>{escape(sys.executable)} -m {escape(library.install_command)}</code></p>"
                 "<p>Puedes activar la librería igualmente; los nodos avisarán al ejecutarse "
                 "si falta el paquete.</p>"
             )
@@ -84,24 +100,41 @@ class LibrariesDialog(QDialog):
             self.listing.addItem(item)
 
         self.details = QTextBrowser()
+        self.install_button = QPushButton("Instalar paquetes que faltan")
+        self.install_button.setToolTip(
+            "Instala con pip, en el mismo Python que ejecuta la aplicación, los paquetes que "
+            "necesita la librería seleccionada"
+        )
+        self.install_button.clicked.connect(self.install_missing)
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumHeight(150)
+        self.log.setPlaceholderText("Aquí aparece el avance de la instalación")
+        self.log.hide()
+        self._process: QProcess | None = None
+        self._installing: LibraryInfo | None = None
         self.warning = QLabel()
         self.warning.setWordWrap(True)
         self.warning.setStyleSheet(f"color: {Colors.LINK_INVALID};")
 
-        buttons = QDialogButtonBox(
+        self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
 
+        right = QVBoxLayout()
+        right.addWidget(self.details, 1)
+        right.addWidget(self.install_button)
         body = QHBoxLayout()
         body.addWidget(self.listing)
-        body.addWidget(self.details, 1)
+        body.addLayout(right, 1)
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
         layout.addLayout(body, 1)
+        layout.addWidget(self.log)
         layout.addWidget(self.warning)
-        layout.addWidget(buttons)
+        layout.addWidget(self.buttons)
 
         self.listing.currentItemChanged.connect(self._show_current)
         self.listing.itemChanged.connect(lambda _item: self._update_warning())
@@ -118,6 +151,87 @@ class LibrariesDialog(QDialog):
     def _show_current(self, item: QListWidgetItem | None, _previous=None) -> None:
         library = self._library_of(item)
         self.details.setHtml(library_html(library) if library else "")
+        self._update_install_button()
+
+    def _current_library(self) -> LibraryInfo | None:
+        return self._library_of(self.listing.currentItem())
+
+    def _update_install_button(self) -> None:
+        library = self._current_library()
+        missing = bool(library and library.missing)
+        self.install_button.setVisible(missing)
+        self.install_button.setEnabled(self._process is None and can_install())
+        if missing and not can_install():
+            self.install_button.setToolTip("Esta versión empaquetada no puede instalar paquetes")
+
+    # -- instalación de paquetes -----------------------------------------------------------
+
+    def install_missing(self) -> bool:
+        """Instala con pip los paquetes que faltan de la librería seleccionada.
+
+        Pide confirmación mostrando el comando. ``False`` si no hay nada que instalar, no se
+        puede o el usuario cancela; el resultado llega de forma asíncrona (ver ``_finished``).
+        """
+        library = self._current_library()
+        if library is None or not library.missing or self._process is not None:
+            return False
+        if not can_install():
+            return False
+        packages = [r.package for r in library.missing]
+        program, args = pip_command(packages)
+        answer = QMessageBox.question(
+            self,
+            "Instalar paquetes",
+            f"Se descargarán e instalarán de PyPI: {', '.join(packages)}.\n\n"
+            f"Comando:\n{program} {' '.join(args)}\n\n"
+            "Puede tardar unos minutos y añadir otros paquetes de los que dependen. ¿Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        self.log.clear()
+        self.log.show()
+        self.log.appendPlainText(f"$ {program} {' '.join(args)}")
+        process = QProcess(self)
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.readyReadStandardOutput.connect(self._read_output)
+        process.finished.connect(self._finished)
+        process.errorOccurred.connect(self._failed_to_start)
+        self._process, self._installing = process, library
+        self.buttons.setEnabled(False)  # no se cierra el diálogo a mitad de una instalación
+        self.listing.setEnabled(False)
+        self._update_install_button()
+        process.start(program, args)
+        return True
+
+    def _read_output(self) -> None:
+        if self._process is not None:
+            text = bytes(self._process.readAllStandardOutput()).decode("utf-8", "replace")
+            self.log.appendPlainText(text.rstrip("\r\n"))
+
+    def _failed_to_start(self, error) -> None:
+        if error == QProcess.ProcessError.FailedToStart:
+            self.log.appendPlainText("No se pudo ejecutar Python para instalar los paquetes.")
+            self._finished(-1, QProcess.ExitStatus.CrashExit)
+
+    def _finished(self, code: int, _status=None) -> None:
+        process, library = self._process, self._installing
+        if process is None:
+            return
+        self._read_output()
+        self._process = self._installing = None
+        process.deleteLater()
+        importlib.invalidate_caches()  # que Python vea lo recién instalado sin reiniciar
+        self.buttons.setEnabled(True)
+        self.listing.setEnabled(True)
+        self._show_current(self.listing.currentItem())
+        if code == 0 and library is not None and not library.missing:
+            self.log.appendPlainText("Instalación terminada.")
+        else:
+            self.log.appendPlainText(
+                f"La instalación no terminó bien (código {code}). Revisa el mensaje de arriba."
+            )
 
     def _update_warning(self) -> None:
         """Avisa de los nodos del grafo que se borrarían al desactivar una librería."""
@@ -131,6 +245,10 @@ class LibrariesDialog(QDialog):
         self.warning.setText(
             "Al aceptar se eliminarán del grafo: " + ", ".join(lost) + "." if lost else ""
         )
+
+    def reject(self) -> None:
+        if self._process is None:  # a mitad de una instalación no se cierra
+            super().reject()
 
     def selected_ids(self) -> list[str]:
         ids = []

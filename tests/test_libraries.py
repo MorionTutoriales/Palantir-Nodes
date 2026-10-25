@@ -638,3 +638,129 @@ def test_realtime_network_graph_runs_from_the_window(win, qtbot):
     win.runner.stop_realtime(wait=True)
     with pytest.raises(OSError):
         socket.create_connection(("127.0.0.1", port), timeout=1)  # al detener se cierra
+
+
+# -- instalar paquetes desde el diálogo ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def installer(monkeypatch, tmp_path):
+    """Un «pip» falso: un script de Python; el paquete cuenta como instalado si existe la marca."""
+    from palantir_nodes.ui import libraries_dialog
+
+    marker = tmp_path / "instalado.txt"
+    state = {"code": 0, "program": sys.executable}
+    monkeypatch.setattr(Requirement, "installed", property(lambda self: marker.exists()))
+
+    def fake_pip(packages):
+        script = (
+            f"import sys, pathlib; print('instalando', {packages!r}); "
+            f"pathlib.Path({str(marker)!r}).write_text('x') if {state['code']} == 0 else None; "
+            f"sys.exit({state['code']})"
+        )
+        return state["program"], ["-c", script]
+
+    monkeypatch.setattr(libraries_dialog, "pip_command", fake_pip)
+    return state, marker
+
+
+def make_dialog(qtbot):
+    dialog = LibrariesDialog([])
+    qtbot.addWidget(dialog)
+    dialog.show()
+    return dialog
+
+
+def test_real_pip_command_targets_the_running_python():
+    from palantir_nodes.ui.libraries_dialog import pip_command
+
+    program, args = pip_command(["websockets"])
+    assert program == sys.executable and args == ["-m", "pip", "install", "websockets"]
+
+
+def test_install_button_is_only_shown_when_something_is_missing(qtbot, monkeypatch):
+    monkeypatch.setattr(Requirement, "installed", property(lambda self: True))
+    dialog = make_dialog(qtbot)
+    assert not dialog.install_button.isVisible()
+    monkeypatch.setattr(Requirement, "installed", property(lambda self: False))
+    dialog.listing.setCurrentRow(1)
+    dialog.listing.setCurrentRow(0)
+    assert dialog.install_button.isVisible() and dialog.install_button.isEnabled()
+    dialog.listing.setCurrentRow(1)  # TCP no necesita paquetes
+    assert not dialog.install_button.isVisible()
+
+
+def test_declining_the_confirmation_installs_nothing(qtbot, installer, monkeypatch):
+    dialog = make_dialog(qtbot)
+    asked = answer(monkeypatch, QMessageBox.StandardButton.No)
+    assert dialog.install_missing() is False
+    assert dialog._process is None and not dialog.log.isVisible()
+    assert "websockets" in asked[0] and sys.executable in asked[0] or "-c" in asked[0]
+
+
+def test_successful_install_shows_progress_and_refreshes_the_status(qtbot, installer, monkeypatch):
+    state, marker = installer
+    dialog = make_dialog(qtbot)
+    answer(monkeypatch, QMessageBox.StandardButton.Yes)
+    assert dialog.install_missing() is True
+    assert dialog.log.isVisible() and not dialog.buttons.isEnabled()  # no se puede cerrar ahora
+    assert not dialog.install_button.isEnabled() and not dialog.listing.isEnabled()
+    dialog.reject()  # a mitad de una instalación no se cierra
+    assert dialog.isVisible()
+    qtbot.waitUntil(lambda: dialog._process is None, timeout=15000)
+    text = dialog.log.toPlainText()
+    assert "instalando ['websockets']" in text and "Instalación terminada" in text
+    assert marker.exists() and dialog.buttons.isEnabled() and dialog.listing.isEnabled()
+    assert not dialog.install_button.isVisible()  # ya no falta nada
+    assert "instalado" in dialog.details.toPlainText()
+
+
+def test_failed_install_reports_the_exit_code_and_keeps_the_button(qtbot, installer, monkeypatch):
+    state, marker = installer
+    state["code"] = 3
+    dialog = make_dialog(qtbot)
+    answer(monkeypatch, QMessageBox.StandardButton.Yes)
+    dialog.install_missing()
+    qtbot.waitUntil(lambda: dialog._process is None, timeout=15000)
+    assert "no terminó bien (código 3)" in dialog.log.toPlainText() and not marker.exists()
+    assert dialog.install_button.isVisible() and dialog.install_button.isEnabled()
+    assert dialog.buttons.isEnabled()
+
+
+def test_install_that_cannot_start_python_is_reported(qtbot, installer, monkeypatch, tmp_path):
+    state, _ = installer
+    state["program"] = str(tmp_path / "no_existe.exe")
+    dialog = make_dialog(qtbot)
+    answer(monkeypatch, QMessageBox.StandardButton.Yes)
+    dialog.install_missing()
+    qtbot.waitUntil(lambda: dialog._process is None, timeout=15000)
+    assert "No se pudo ejecutar Python" in dialog.log.toPlainText() and dialog.buttons.isEnabled()
+
+
+def test_packaged_apps_cannot_install(qtbot, installer, monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    dialog = make_dialog(qtbot)
+    assert dialog.install_missing() is False
+    assert dialog.install_button.isVisible() and not dialog.install_button.isEnabled()
+
+
+def test_nothing_to_install_when_the_library_is_complete(qtbot, monkeypatch):
+    monkeypatch.setattr(Requirement, "installed", property(lambda self: True))
+    dialog = make_dialog(qtbot)
+    assert dialog.install_missing() is False
+
+
+def test_import_errors_tell_which_python_to_install_into(monkeypatch):
+    from palantir_nodes.libraries.mediapipe_lib import runtime as mp
+
+    monkeypatch.setitem(sys.modules, "websockets", None)
+    monkeypatch.setitem(sys.modules, "websockets.asyncio", None)
+    monkeypatch.setitem(sys.modules, "websockets.asyncio.client", None)
+    with pytest.raises(ValueError) as exc:
+        WebSocketLink("server", ("127.0.0.1", free_port())).start()
+    assert sys.executable in str(exc.value) and "halted" in str(exc.value)  # causa original
+    monkeypatch.setitem(sys.modules, "mediapipe", None)
+    monkeypatch.setitem(sys.modules, "mediapipe.tasks", None)
+    with pytest.raises(ValueError) as exc:
+        mp.mp_create("hands", (), "x.task")
+    assert sys.executable in str(exc.value) and "pip install mediapipe" in str(exc.value)

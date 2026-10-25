@@ -13,6 +13,7 @@ alto)``) y ``score``.
 from __future__ import annotations
 
 import os
+import sys
 import urllib.request
 
 import cv2
@@ -90,8 +91,11 @@ def mp_create(kind, options, model_path):
     try:
         from mediapipe.tasks import python as tasks
         from mediapipe.tasks.python import vision
-    except ImportError:
-        raise ValueError("Falta instalar el paquete 'mediapipe' (pip install mediapipe)") from None
+    except ImportError as exc:
+        raise ValueError(
+            f"No se pudo cargar 'mediapipe' ({exc}). Instálalo en el Python que ejecuta esto: "
+            f'"{sys.executable}" -m pip install mediapipe'
+        ) from None
     opts = dict(options)
     base = tasks.BaseOptions(model_asset_path=model_path)
     mode = vision.RunningMode.IMAGE
