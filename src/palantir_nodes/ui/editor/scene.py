@@ -167,6 +167,12 @@ class NodeScene(QGraphicsScene):
         for node_id, item in self.node_items.items():
             item.set_preview(previews.get(node_id))
 
+    def apply_texts(self, texts: dict[str, str]) -> None:
+        """Texto de cada nodo que muestra uno (quita el de los que ya no tienen)."""
+        for node_id, item in self.node_items.items():
+            if item.definition.shows_text:
+                item.set_text(texts.get(node_id))
+
     def apply_statuses(self, errors: dict[str, str], blocked: dict[str, str]) -> None:
         for node_id, item in self.node_items.items():
             if node_id in errors:

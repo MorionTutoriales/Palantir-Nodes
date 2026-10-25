@@ -100,6 +100,7 @@ class ViewerPanel(QWidget):
         self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message.setWordWrap(True)
         self.message.setMargin(16)
+        self.message.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.message.setStyleSheet(f"background: {Colors.EDITOR_BG}; color: {Colors.TEXT_DIM};")
         self.stack = QStackedWidget()
         self.stack.addWidget(self.message)
@@ -125,6 +126,10 @@ class ViewerPanel(QWidget):
         self.source.setText(source)
         self.info.setText("")
         self.stack.setCurrentWidget(self.message)
+
+    def show_text(self, text: str, source: str = "") -> None:
+        """Muestra un texto (seleccionable) en lugar de una imagen."""
+        self.show_message(text if text else "(texto vacío)", source=source)
 
     def show_image(
         self,

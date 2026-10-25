@@ -75,6 +75,8 @@ class NodeDefinition:
     is_source: ClassVar[bool] = False
     # Los nodos con efectos externos (escribir archivos) no se reutilizan desde la caché.
     cacheable: ClassVar[bool] = True
+    # Nombre de la entrada de texto que el nodo muestra dentro de sí (p. ej. String Viewer).
+    shows_text: ClassVar[str] = ""
 
     @classmethod
     def open_source(cls, params: dict[str, Any]) -> Any:

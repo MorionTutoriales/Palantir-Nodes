@@ -186,6 +186,13 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
   - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
 
+- **Conversiones** (categoría nueva): `Number to String` (con decimales), `String to Number` (acepta
+  coma decimal; si no es un número usa un valor por defecto o muestra un error, a elección),
+  `Integer to Float`, `Float to Integer` (piso, techo, redondeo o truncado) y los de color
+  (`RGB to HSV`, `HSV to RGB`, `Convert Color Space`).
+- **`String Viewer`** (Salidas): recibe un texto y lo muestra dentro del nodo (recortado con «…» si es
+  largo); al seleccionarlo o fijar el visor en él, el texto completo se lee —y se puede copiar— en el
+  visor de resultados. El script exportado lo imprime cuando cambia.
 - **Nodos nuevos:** `Sine` y `Cosine` (Matemáticas; radianes o grados), `Convert Color Space`
   (imagen entre BGR, RGB, HSV, HLS, Lab, YCrCb y gris), `RGB to HSV` y `HSV to RGB` (valores de
   color, con la escala de OpenCV: H 0-179, S y V 0-255, la misma de `Color Range`) y `Tick`.
@@ -199,6 +206,24 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   paquetes necesarios en su encabezado. Desactivar una librería con nodos en el grafo pide
   confirmación y los elimina. El diálogo indica si falta algún paquete y cómo instalarlo; no se
   instala nada solo.
+  - **Red (TCP)** (solo biblioteca estándar, sin instalar nada): `TCP Server` y `TCP Client` con las
+    mismas entradas y salidas que los de WebSocket. TCP es un flujo de bytes, así que **cada línea
+    es un mensaje**: lo que recibe se separa por saltos de línea y lo que envía termina en uno (los
+    saltos que el propio texto contenga se envían como espacios). Sirve para Arduino/ESP32,
+    scripts propios, `nc`, etc.
+  - **MediaPipe** (requiere `pip install mediapipe`, o `pip install -e .[mediapipe]`): `Hand
+    Landmarks` (21 puntos por mano), `Pose Landmarks` (33 puntos del cuerpo), `Face Mesh` (478
+    puntos) y `Face Detection` (cajas y 6 puntos clave). Cada uno dibuja sobre la imagen y entrega
+    `Cantidad`, `Puntos` y `Cajas` (en píxeles); `Landmark Point` saca un punto concreto (p. ej.
+    mano 0, índice 8 = punta del índice) como `Punto`, `X`, `Y` y `Encontrado`.
+    - Usa la API «Tasks» de MediaPipe, que necesita un archivo de **modelo**. Si el campo «Modelo»
+      está vacío se descarga el modelo oficial de Google la primera vez (necesita Internet) y se
+      guarda en `~/.palantir_nodes/models` (o en la carpeta de la variable `PALANTIR_NODES_MODELS`);
+      también puedes elegir tu propio archivo `.task`/`.tflite`.
+    - El detector se crea una vez y se reutiliza en tiempo real; el script exportado hace lo mismo.
+    - Comprobado con los modelos reales (los cuatro detectores arrancan y procesan imágenes); la
+      detección de personas reales depende del modelo y no está cubierta por las pruebas, que usan
+      un paquete falso.
   - **Red (WebSocket)** (requiere `pip install websockets`, o `pip install -e .[network]`):
     - `WebSocket Server`: abre un servidor (dirección y puerto) y entrega `Clientes` conectados,
       el último `Mensaje` recibido, `Mensaje nuevo` (verdadero solo en el fotograma en que llegó)
@@ -308,5 +333,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (897 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (971 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

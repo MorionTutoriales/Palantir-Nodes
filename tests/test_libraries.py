@@ -75,7 +75,7 @@ def open_link(links, mode, address, policy="latest"):
 
 def test_libraries_are_not_registered_until_activated(registry, manager):
     assert SERVER not in registry and CLIENT not in registry and not manager.enabled
-    assert [lib.id for lib in available_libraries()] == ["network"]
+    assert [lib.id for lib in available_libraries()] == ["network", "tcp", "mediapipe"]
 
 
 def test_enable_registers_the_nodes_and_disable_removes_them(registry, manager):
@@ -456,7 +456,7 @@ def test_nodes_of_an_inactive_library_are_preserved_not_lost(registry, manager):
 def test_dialog_lists_libraries_with_their_state(qtbot):
     dialog = LibrariesDialog(["network"], usage={"network": 3})
     qtbot.addWidget(dialog)
-    assert dialog.listing.count() == 1 and dialog.selected_ids() == ["network"]
+    assert dialog.listing.count() == 3 and dialog.selected_ids() == ["network"]
     html = dialog.details.toPlainText()
     assert "WebSocket Server" in html and "websockets" in html
     assert dialog.warning.text() == ""

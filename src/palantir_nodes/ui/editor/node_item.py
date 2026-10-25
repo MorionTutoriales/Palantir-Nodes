@@ -39,6 +39,7 @@ class _Row:
 PREVIEW_WIDTH = 172.0  # espacio máximo de la miniatura dentro del nodo
 PREVIEW_HEIGHT = 110.0
 PREVIEW_GAP = 6.0
+TEXT_MAX_HEIGHT = 120.0  # alto máximo del texto de un String Viewer dentro del nodo
 PREVIEW_MAX_UPSCALE = 3.0  # las imágenes diminutas se amplían como mucho 3 veces
 DRAG_THRESHOLD = 4.0  # píxeles antes de que un clic en un campo pase a ser un arrastre
 
@@ -76,6 +77,10 @@ class NodeItem(QGraphicsItem):
         self._hover_pin = False
         self._preview_pixmap: QPixmap | None = None
         self._preview_size = (0.0, 0.0)
+        self._preview_extra = 0.0
+        self._text: str | None = None  # texto completo que muestra el nodo (String Viewer)
+        self._text_shown = ""  # lo que cabe en el nodo, con «…» si se recortó
+        self._text_extra = 0.0
         self._field_press: dict | None = None
         self.pinned = False  # el visor está fijado en este nodo
         self.status: str | None = None
@@ -116,6 +121,8 @@ class NodeItem(QGraphicsItem):
         """Nodos con imagen: producen una o (los de salida) la reciben, y el visor puede fijarse."""
         definition = self.definition
         if any(o.type is SocketType.IMAGE for o in definition.outputs):
+            return True
+        if definition.shows_text:
             return True
         return not definition.outputs and any(i.type is SocketType.IMAGE for i in definition.inputs)
 
@@ -168,18 +175,71 @@ class NodeItem(QGraphicsItem):
             if self._preview_pixmap is None:
                 return
             self._preview_pixmap = None
-            extra = 0.0
+            self._preview_extra = 0.0
         else:
             img_h, img_w = image.shape[:2]
             scale = min(PREVIEW_WIDTH / img_w, PREVIEW_HEIGHT / img_h, PREVIEW_MAX_UPSCALE)
             self._preview_pixmap = QPixmap.fromImage(ndarray_to_qimage(image))
             self._preview_size = (img_w * scale, img_h * scale)
-            extra = self._preview_size[1] + PREVIEW_GAP
-        new_height = self._base_height + extra
+            self._preview_extra = self._preview_size[1] + PREVIEW_GAP
+        self._apply_height()
+
+    def _apply_height(self) -> None:
+        new_height = self._base_height + self._preview_extra + self._text_extra
         if new_height != self._height:
             self.prepareGeometryChange()
             self._height = new_height
         self.update()
+
+    # -- texto (String Viewer) -----------------------------------------------------------
+
+    @property
+    def text(self) -> str | None:
+        return self._text
+
+    def text_rect(self) -> QRectF | None:
+        """Rectángulo (coordenadas locales) del texto mostrado, o ``None``."""
+        if self._text is None:
+            return None
+        top = self._base_height - self.PAD + self._preview_extra + PREVIEW_GAP
+        return QRectF(8, top, self.WIDTH - 16, self._text_extra - PREVIEW_GAP)
+
+    def set_text(self, text: str | None) -> None:
+        """Muestra un texto dentro del nodo (``None`` lo quita). Si no cabe se recorta con «…»."""
+        if text == self._text:
+            return
+        self._text = text
+        if text is None:
+            self._text_shown, self._text_extra = "", 0.0
+            self.setToolTip(self._base_tooltip())
+        else:
+            self._text_shown, height = self._fit_text(text)
+            self._text_extra = height + PREVIEW_GAP
+            self.setToolTip(text[:2000] + ("…" if len(text) > 2000 else ""))
+        self._apply_height()
+
+    def _fit_text(self, text: str) -> tuple[str, float]:
+        """Parte del texto que cabe en ``TEXT_MAX_HEIGHT`` y el alto que ocupa."""
+        metrics = QFontMetricsF(self._font)
+        flags = int(Qt.TextFlag.TextWordWrap)
+        box = QRectF(0, 0, self.WIDTH - 24, 100000)
+
+        def height_of(value: str) -> float:
+            return metrics.boundingRect(box, flags, value).height() + 8
+
+        if not text:
+            return "", metrics.height() + 8
+        if height_of(text) <= TEXT_MAX_HEIGHT:
+            return text, height_of(text)
+        low, high = 0, len(text)
+        while low < high:  # la mayor longitud que cabe junto con la «…»
+            mid = (low + high + 1) // 2
+            if height_of(text[:mid] + "…") <= TEXT_MAX_HEIGHT:
+                low = mid
+            else:
+                high = mid - 1
+        shown = text[:low] + "…"
+        return shown, min(height_of(shown), TEXT_MAX_HEIGHT)
 
     def socket(self, name: str, is_output: bool) -> SocketItem | None:
         return (self.output_sockets if is_output else self.input_sockets).get(name)
@@ -271,6 +331,19 @@ class NodeItem(QGraphicsItem):
         for row in self._rows:
             self._paint_row(painter, row)
         self._paint_preview(painter)
+        self._paint_text(painter)
+
+    def _paint_text(self, painter: QPainter) -> None:
+        rect = self.text_rect()
+        if rect is None:
+            return
+        painter.setPen(QPen(QColor("#151515"), 1))
+        painter.setBrush(QColor(Colors.BASE))
+        painter.drawRoundedRect(rect, 4, 4)
+        painter.setPen(QColor(Colors.NODE_TEXT))
+        painter.setFont(self._font)
+        flags = Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap
+        painter.drawText(rect.adjusted(6, 4, -6, -4), int(flags), self._text_shown)
 
     def _paint_preview(self, painter: QPainter) -> None:
         rect = self.preview_rect()

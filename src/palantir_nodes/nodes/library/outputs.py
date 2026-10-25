@@ -33,6 +33,32 @@ class ImageViewer(NodeDefinition):
 
 
 @register_node
+class StringViewer(NodeDefinition):
+    type_id = "output.string_viewer"
+    label = "String Viewer"
+    category = OUTPUT
+    description = (
+        "Muestra un texto dentro del nodo. Al seleccionarlo (o fijar el visor en él) el texto "
+        "completo se lee en el visor de resultados; el script exportado lo imprime en la consola."
+    )
+    shows_text = "text"
+    inputs = (InputSpec("text", T.STRING, "Texto"),)
+
+    def process(self, ctx, inputs, params):
+        return {}
+
+    def generate_code(self, gen, inputs, params):
+        last = gen.new_var("last_text")
+        text = inputs["text"]
+        lines = [
+            f"if {text} != {last}:",
+            f"    print({text})",
+            f"    {last} = {text}",
+        ]
+        return CodeFragment(lines, {}, pre=[f"{last} = None"])
+
+
+@register_node
 class SaveImage(NodeDefinition):
     type_id = "output.save_image"
     label = "Save Image"

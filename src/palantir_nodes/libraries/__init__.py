@@ -48,9 +48,11 @@ class LibraryInfo:
 
 def available_libraries() -> list[LibraryInfo]:
     """Todas las librerías incluidas, en el orden en que se muestran."""
+    from palantir_nodes.libraries.mediapipe_lib import LIBRARY as mediapipe
     from palantir_nodes.libraries.network import LIBRARY as network
+    from palantir_nodes.libraries.tcp import LIBRARY as tcp
 
-    return [network]
+    return [network, tcp, mediapipe]
 
 
 def get_library(library_id: str) -> LibraryInfo | None:

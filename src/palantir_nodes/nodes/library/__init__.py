@@ -5,4 +5,4 @@ de código se implementan en las Fases 3 y 4 (hasta entonces lanzan
 ``NodeNotImplementedError``).
 """
 
-from palantir_nodes.nodes.library import color, compose, image, inputs, math, outputs  # noqa: F401
+from palantir_nodes.nodes.library import color, compose, convert, image, inputs, math, outputs  # noqa: F401

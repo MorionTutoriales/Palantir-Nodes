@@ -12,9 +12,12 @@ import textwrap
 from dataclasses import dataclass
 
 from palantir_nodes.customnodes import runtime
+from palantir_nodes.libraries import link
+from palantir_nodes.libraries.mediapipe_lib import runtime as mp
 from palantir_nodes.libraries.network import runtime as network_runtime
+from palantir_nodes.libraries.tcp import runtime as tcp_runtime
 from palantir_nodes.media import capture, timing
-from palantir_nodes.nodes.library import _cv
+from palantir_nodes.nodes.library import _cv, convert
 from palantir_nodes.nodes.library.inputs import read_image
 
 
@@ -48,6 +51,7 @@ _SAVE_IMAGE = '''def save_image(img: np.ndarray, path: str) -> None:
 HELPERS: dict[str, Helper] = {
     "to_uint8": Helper(_source(_cv.to_uint8)),
     "read_image": Helper(_READ_FLAGS + "\n\n\n" + _source(read_image), ("to_uint8",)),
+    "parse_number": Helper(_source(convert.parse_number)),
     "odd": Helper(_source(_cv.odd)),
     "as_gray": Helper(_source(_cv.as_gray)),
     "as_bgr": Helper(_source(_cv.as_bgr)),
@@ -61,10 +65,22 @@ HELPERS: dict[str, Helper] = {
     "read_frame": Helper(_source(capture.read_frame)),
     "open_video_writer": Helper(_source(capture.open_video_writer)),
     "TickClock": Helper(_source(timing.TickClock)),
-    "WebSocketLink": Helper(
-        f"MAX_PENDING = {network_runtime.MAX_PENDING}\n\n\n"
-        + _source(network_runtime.WebSocketLink)
+    "LinkBase": Helper(f"MAX_PENDING = {link.MAX_PENDING}\n\n\n" + _source(link.LinkBase)),
+    "WebSocketLink": Helper(_source(network_runtime.WebSocketLink), ("LinkBase",)),
+    "TcpLink": Helper(_source(tcp_runtime.TcpLink), ("LinkBase",)),
+    "mp_constants": Helper(
+        f"MP_MODELS = {mp.MP_MODELS!r}\n\n"
+        f"MP_HAND_LINES = {mp.MP_HAND_LINES!r}\n\n"
+        f"MP_POSE_LINES = {mp.MP_POSE_LINES!r}"
     ),
+    "mp_models_dir": Helper(_source(mp.mp_models_dir)),
+    "mp_model_path": Helper(_source(mp.mp_model_path), ("mp_constants", "mp_models_dir")),
+    "mp_create": Helper(_source(mp.mp_create)),
+    "mp_detector": Helper(_source(mp.mp_detector), ("mp_create", "mp_model_path")),
+    "mp_close_all": Helper(_source(mp.mp_close_all)),
+    "mp_detect": Helper(_source(mp.mp_detect), ("as_bgr",)),
+    "mp_draw": Helper(_source(mp.mp_draw), ("as_bgr", "mp_constants")),
+    "pick_landmark": Helper(_source(mp.pick_landmark)),
 }
 
 

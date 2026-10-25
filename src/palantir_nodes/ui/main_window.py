@@ -418,6 +418,7 @@ class MainWindow(QMainWindow):
         self.last_result = result
         if result.previews is not None:  # None = no se calcularon en este fotograma
             self.scene.apply_previews(result.previews)
+        self.scene.apply_texts(self._node_texts(result))
         self.scene.apply_statuses(result.errors, result.blocked)
         self.properties.set_statuses(result.errors, result.blocked)
         failed = len(result.errors)
@@ -434,6 +435,16 @@ class MainWindow(QMainWindow):
         if "__engine__" in result.errors:
             self.show_message(result.errors["__engine__"], 10000)
         self._update_viewer()
+
+    def _node_texts(self, result) -> dict[str, str]:
+        """Texto que muestra cada nodo de texto (String Viewer) en este resultado."""
+        texts: dict[str, str] = {}
+        for node_id, node in self.graph.nodes.items():
+            name = node.definition.shows_text
+            value = result.inputs.get(node_id, {}).get(name) if name else None
+            if value is not None and node_id not in result.errors and node_id not in result.blocked:
+                texts[node_id] = str(value)
+        return texts
 
     def _viewer_target(self) -> str | None:
         """Nodo cuya imagen se muestra: el fijado, el seleccionado o el primer Image Viewer."""
@@ -462,6 +473,9 @@ class MainWindow(QMainWindow):
             self.viewer.show_message(result.errors[node_id], error=True, source=label)
         elif node_id in result.blocked:
             self.viewer.show_message(result.blocked[node_id], error=True, source=label)
+        elif self.graph.node(node_id).definition.shows_text and node_id in result.inputs:
+            name = self.graph.node(node_id).definition.shows_text
+            self.viewer.show_text(str(result.inputs[node_id].get(name, "")), label)
         elif node_id in result.images:
             self.viewer.show_image(
                 result.images[node_id],

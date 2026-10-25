@@ -17,6 +17,7 @@ IMAGE = "Imagen"
 MATH = "Matemáticas"
 COMPOSITE = "Composición"
 OUTPUT = "Salidas"
+CONVERSION = "Conversión"
 
 _CATEGORIES: dict[str, Category] = {}
 
@@ -42,6 +43,7 @@ register_category(IMAGE, "#3B6A9C", 10)
 register_category(MATH, "#2E6F6A", 20)
 register_category(COMPOSITE, "#6A4A8C", 30)
 register_category(OUTPUT, "#7A3B2E", 40)
+register_category(CONVERSION, "#8A7A2E", 25)
 
 
 # Colores para las categorías nuevas (las crean los nodos personalizados).

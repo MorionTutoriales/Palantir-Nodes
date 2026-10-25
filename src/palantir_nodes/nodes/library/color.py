@@ -4,7 +4,7 @@ import cv2
 
 from palantir_nodes.core.types import SocketType as T
 from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
-from palantir_nodes.nodes.categories import IMAGE
+from palantir_nodes.nodes.categories import CONVERSION
 from palantir_nodes.nodes.library._cv import as_bgr, hsv_to_rgb, image_in, rgb_to_hsv
 from palantir_nodes.nodes.registry import register_node
 from palantir_nodes.nodes.specs import InputSpec, OutputSpec, ParamKind, ParamSpec
@@ -45,7 +45,7 @@ def _steps(source: str, target: str) -> list[str]:
 class ConvertColor(NodeDefinition):
     type_id = "image.convert_color"
     label = "Convert Color Space"
-    category = IMAGE
+    category = CONVERSION
     description = (
         "Convierte una imagen entre BGR, RGB, HSV, HLS, Lab, YCrCb y gris. En HSV: H 0-179, "
         "S y V 0-255. Indica en qué espacio está la imagen de entrada (origen)."
@@ -97,7 +97,7 @@ class ConvertColor(NodeDefinition):
 class RgbToHsv(NodeDefinition):
     type_id = "color.rgb_to_hsv"
     label = "RGB to HSV"
-    category = IMAGE
+    category = CONVERSION
     description = "Convierte un color RGB en HSV de OpenCV (H 0-179, S y V 0-255)."
     inputs = (InputSpec("color", T.COLOR, "Color", default=(255, 0, 0)),)
     outputs = (OutputSpec("hsv", T.VECTOR3, "HSV"),)
@@ -115,7 +115,7 @@ class RgbToHsv(NodeDefinition):
 class HsvToRgb(NodeDefinition):
     type_id = "color.hsv_to_rgb"
     label = "HSV to RGB"
-    category = IMAGE
+    category = CONVERSION
     description = "Convierte un HSV de OpenCV (H 0-179, S y V 0-255) en un color RGB."
     inputs = (InputSpec("hsv", T.VECTOR3, "HSV", default=(0.0, 255.0, 255.0)),)
     outputs = (OutputSpec("color", T.COLOR, "Color"),)

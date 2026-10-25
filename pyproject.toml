@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mediapipe = [
+    "mediapipe",
+]
 network = [
     "websockets>=13",
 ]
@@ -50,3 +53,5 @@ select = ["E", "F", "W", "I", "B", "UP"]
 "tests/test_custom_nodes.py" = ["E501"]
 "tests/test_custom_nodes_ui.py" = ["E501"]
 "tests/test_libraries.py" = ["E501"]
+"tests/test_libraries_tcp_mediapipe.py" = ["E501"]
+"tests/test_conversions.py" = ["E501"]

@@ -235,6 +235,10 @@ NODE_INPUTS = {
     "compose.merge_channels": {"blue": GRAY, "green": GRAY, "red": GRAY},
     "compose.split_channels": {"image": SAMPLE},
     "image.convert_color": {"image": SAMPLE},
+    "convert.number_to_string": {"value": 3.14159},
+    "convert.string_to_number": {"text": "2,5"},
+    "convert.integer_to_float": {"value": 4},
+    "convert.float_to_integer": {"value": 2.5},
     "color.rgb_to_hsv": {"color": (200, 40, 90)},
     "color.hsv_to_rgb": {"hsv": (10.0, 200.0, 180.0)},
 }

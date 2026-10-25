@@ -106,4 +106,9 @@ def test_only_known_extras_beyond_the_spec(by_label):
         "Convert Color Space",
         "RGB to HSV",
         "HSV to RGB",
+        "Number to String",
+        "String to Number",
+        "Integer to Float",
+        "Float to Integer",
+        "String Viewer",
     }
