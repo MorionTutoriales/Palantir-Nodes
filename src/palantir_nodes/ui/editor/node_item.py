@@ -408,3 +408,22 @@ class NodeItem(QGraphicsItem):
     def scene_position(self) -> tuple[float, float]:
         pos: QPointF = self.pos()
         return (pos.x(), pos.y())
+
+
+def socket_offset(definition, name: str, *, is_output: bool) -> tuple[float, float]:
+    """Posición local (x, y) de un socket de un tipo de nodo, sin crear el elemento visual.
+
+    Replica la disposición de ``NodeItem._build`` (salidas, parámetros y luego entradas);
+    una prueba comprueba que ambas coinciden.
+    """
+    y = NodeItem.HEADER + NodeItem.PAD
+    for spec in definition.outputs:
+        if is_output and spec.name == name:
+            return (NodeItem.WIDTH, y + NodeItem.ROW / 2)
+        y += NodeItem.ROW
+    y += NodeItem.ROW * len(definition.params)
+    for spec in definition.inputs:
+        if not is_output and spec.name == name:
+            return (0.0, y + NodeItem.ROW / 2)
+        y += NodeItem.ROW
+    raise KeyError(f"'{definition.label}' no tiene el socket '{name}'")

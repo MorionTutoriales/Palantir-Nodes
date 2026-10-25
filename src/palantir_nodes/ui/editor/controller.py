@@ -23,12 +23,14 @@ from palantir_nodes.ui.editor.commands import (
     RemoveItemsCommand,
     SetValueCommand,
 )
+from palantir_nodes.ui.editor.node_item import socket_offset
 
 if TYPE_CHECKING:
     from palantir_nodes.ui.editor.scene import NodeScene
 
 FRAME_COLORS = ("#4A6FA5", "#5E9F6E", "#A5714A", "#8A5AA5", "#A59C4A", "#4A9FA5")
 FRAME_PADDING = 30.0
+LINK_DROP_GAP = 24.0  # separación entre el punto de suelta y el nodo recién creado
 FRAME_TITLE_HEIGHT = 26.0
 
 CLIPBOARD_MIME = "application/x-palantir-nodes"
@@ -77,6 +79,42 @@ class EditorController(QObject):
         else:
             text = f"Eliminar {len(frame_ids)} frame(s)"
         self.undo_stack.push(RemoveItemsCommand(self.graph, node_ids, link_ids, text, frame_ids))
+
+    def add_node_linked(
+        self,
+        type_id: str,
+        drop_pos: QPointF,
+        origin_node: str,
+        origin_socket: str,
+        origin_is_output: bool,
+        new_socket: str,
+    ) -> str:
+        """Crea un nodo ya conectado al socket de origen (un solo paso de deshacer).
+
+        El nodo se coloca con el socket elegido justo en ``drop_pos``, algo separado: a la
+        derecha si se arrastró desde una salida y a la izquierda si fue desde una entrada.
+        """
+        definition = self.graph.registry.require(type_id)
+        offset_x, offset_y = socket_offset(definition, new_socket, is_output=not origin_is_output)
+        if origin_is_output:
+            x = drop_pos.x() + LINK_DROP_GAP
+        else:
+            x = drop_pos.x() - LINK_DROP_GAP - offset_x
+        data = {
+            "id": new_id(),
+            "type_id": type_id,
+            "position": [x, drop_pos.y() - offset_y],
+        }
+        if origin_is_output:
+            link = Link(new_id(), origin_node, origin_socket, data["id"], new_socket)
+        else:
+            link = Link(new_id(), data["id"], new_socket, origin_node, origin_socket)
+        command = AddItemsCommand(
+            self.graph, [data], [link], f"Añadir {definition.label} conectado"
+        )
+        self.undo_stack.push(command)
+        self._select(command.node_ids)
+        return data["id"]
 
     # -- frames ------------------------------------------------------------------------
 

@@ -50,6 +50,7 @@ class NodeView(QGraphicsView):
         self._panning = False
         self._pan_last = QPointF()
         self.grid_visible = True
+        self.link_popup: NodeSearchPopup | None = None  # buscador abierto al soltar una conexión
         self.zoom_step = ZOOM_STEP
 
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
@@ -99,6 +100,7 @@ class NodeView(QGraphicsView):
         )
         self.action_add_frame = self._action("Añadir frame vacío", [], self._add_empty_frame)
         self.node_scene.frame_rename_requested.connect(self.rename_frame)
+        self.node_scene.link_dropped.connect(self.show_link_search)
 
     def editor_actions(self) -> list[QAction | None]:
         """Acciones del editor para el menú Editar (``None`` = separador)."""
@@ -356,6 +358,47 @@ class NodeView(QGraphicsView):
         color = QColorDialog.getColor(QColor(frame.color), self, "Color del frame")
         if color.isValid():
             self.controller.edit_frame(frame_id, color=color.name())
+
+    def show_link_search(
+        self, node_id: str, socket: str, is_output: bool, scene_pos: QPointF
+    ) -> None:
+        """Buscador de los nodos a los que se podría conectar el socket que se soltó en vacío.
+
+        Al elegir uno se crea ya conectado, con su socket compatible en el punto de suelta.
+        """
+        graph = self.node_scene.graph
+        if node_id not in graph.nodes:
+            return
+        definition = graph.node(node_id).definition
+        spec = definition.output(socket) if is_output else definition.input(socket)
+        matches = self.registry.compatible_with(spec.type, origin_is_output=is_output)
+        if not matches:
+            self.controller.status_message.emit(
+                f"Ningún nodo tiene un socket compatible con {spec.type.value}"
+            )
+            return
+        by_type = {m.node_type.type_id: m for m in matches}
+        arrow = "→ entrada" if is_output else "← salida"
+        hints = {}
+        for m in matches:
+            target = (m.node_type.input if is_output else m.node_type.output)(m.socket)
+            hints[m.node_type.type_id] = f"{arrow} {target.display_label}"
+        title = (
+            f"Conectar «{spec.display_label}» ({spec.type.value}) a…"
+            if is_output
+            else f"Alimentar «{spec.display_label}» ({spec.type.value}) desde…"
+        )
+        popup = NodeSearchPopup(
+            self.registry, self, candidates=[m.node_type for m in matches], hints=hints, title=title
+        )
+        popup.node_chosen.connect(
+            lambda type_id: self.controller.add_node_linked(
+                type_id, scene_pos, node_id, socket, is_output, by_type[type_id].socket
+            )
+        )
+        self.link_popup = popup
+        popup.destroyed.connect(lambda *_: setattr(self, "link_popup", None))
+        popup.popup_at(QCursor.pos())
 
     def show_search(self, global_pos: QPoint, scene_pos: QPointF) -> None:
         popup = NodeSearchPopup(self.registry, self)

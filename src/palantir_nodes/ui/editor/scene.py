@@ -35,6 +35,8 @@ class _LinkDrag:
 class NodeScene(QGraphicsScene):
     status_message = Signal(str)
     frame_rename_requested = Signal(str)
+    # Se soltó una conexión nueva en un espacio vacío: (nodo, socket, ¿es salida?, posición).
+    link_dropped = Signal(str, str, bool, QPointF)
     # (nodo, "param" | "input", nombre, rectángulo del campo en la escena)
     field_edit_requested = Signal(str, str, str, QRectF)
 
@@ -243,7 +245,7 @@ class NodeScene(QGraphicsScene):
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         if self._drag is not None:
             if event.button() == Qt.MouseButton.LeftButton:
-                self._finish_link_drag()
+                self._finish_link_drag(event.scenePos())
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -329,7 +331,11 @@ class NodeScene(QGraphicsScene):
         else:
             drag.item.set_bezier(end, start)
 
-    def _finish_link_drag(self) -> None:
+    def _is_empty_space(self, pos: QPointF) -> bool:
+        """``True`` si no hay ningún nodo bajo ``pos`` (conexiones y frames no cuentan)."""
+        return not any(isinstance(item, NodeItem) for item in self.items(pos))
+
+    def _finish_link_drag(self, pos: QPointF) -> None:
         drag = self._drag
         detached = drag.detached
         self._end_drag_visuals()
@@ -337,6 +343,11 @@ class NodeScene(QGraphicsScene):
         if drag.target is None:
             if detached is not None:
                 self.controller.remove_items([], [detached.id])
+            elif self._is_empty_space(pos):
+                origin = drag.origin
+                self.link_dropped.emit(origin.node_id, origin.name, origin.is_output, pos)
+            else:
+                self.status_message.emit("Suelta sobre un socket o en un espacio vacío")
             return
         if not drag.check:
             self.status_message.emit(f"Conexión no válida: {drag.check.reason}")

@@ -153,6 +153,17 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
     carpeta (las pruebas la usan para no tocar la configuración real).
   - Los textos estándar de Qt (Guardar, Cancelar, selector de color…) se muestran en español.
 
+- **Buscar al soltar una conexión (como en Blender):** arrastra desde un socket y suéltalo en un
+  espacio vacío. Se abre un buscador **filtrado a los nodos que tienen un socket compatible**,
+  con la pista de a cuál se conectarán (`→ entrada Image`). Desde una **salida** se listan nodos
+  con una entrada que la acepte; desde una **entrada**, nodos con una salida que pueda
+  alimentarla. Primero van los de tipo idéntico, luego los que requieren una conversión
+  implícita (p. ej. Integer → Float) y al final los genéricos (`Any`). Al elegir uno (clic, o
+  escribir para filtrar y `Enter`) el nodo se crea **ya conectado**, con ese socket justo en el
+  punto donde soltaste, en **un solo paso de deshacer**. `Esc` cancela. Soltar sobre un socket
+  conecta directamente como antes, soltar sobre un nodo no hace nada, y arrastrar una conexión
+  existente fuera de una entrada sigue eliminándola.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
@@ -204,5 +215,7 @@ Todas las acciones de la barra superior funcionan.
 12. Cada nodo con imagen muestra su miniatura tras ejecutar y en tiempo real; se puede
     desactivar y no se calcula si está desactivada.
 13. Las preferencias se guardan, se aplican al instante y un archivo dañado no impide arrancar.
-14. `pytest` pasa (461 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+14. Arrastrar un socket a un espacio vacío abre un buscador filtrado por compatibilidad y crea
+    el nodo conectado en un solo paso de deshacer.
+15. `pytest` pasa (485 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias y UI real).

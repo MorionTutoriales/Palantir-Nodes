@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from importlib.metadata import entry_points
 
 from palantir_nodes.core.errors import ParamValidationError, RegistryError, UnknownNodeTypeError
+from palantir_nodes.core.types import SocketType, is_compatible
 from palantir_nodes.nodes.base import NodeDefinition
 from palantir_nodes.nodes.categories import get_category
 
@@ -16,6 +18,19 @@ from palantir_nodes.nodes.categories import get_category
 ENTRY_POINT_GROUP = "palantir_nodes.nodes"
 
 NodeType = type[NodeDefinition]
+
+
+@dataclass(frozen=True)
+class SocketMatch:
+    """Socket de un nodo candidato al que se puede conectar un socket de origen."""
+
+    node_type: NodeType
+    socket: str
+    rank: int  # 0 = mismo tipo, 1 = con conversión implícita, 2 = genérico (Any)
+
+    @property
+    def exact(self) -> bool:
+        return self.rank == 0
 
 
 def _validate_definition(cls: NodeType) -> None:
@@ -114,6 +129,41 @@ class NodeRegistry:
             scored.append((score, label, cls))
         scored.sort(key=lambda item: (item[0], item[1]))
         return [cls for _, _, cls in scored]
+
+    def compatible_with(
+        self, socket_type: SocketType, *, origin_is_output: bool
+    ) -> list[SocketMatch]:
+        """Nodos que tienen un socket al que se podría conectar el origen indicado.
+
+        Con ``origin_is_output`` (se arrastró desde una salida de tipo ``socket_type``) se buscan
+        entradas que la acepten; si no (se arrastró desde una entrada) se buscan salidas que
+        puedan alimentarla. De cada nodo se elige su mejor socket: primero el del mismo tipo,
+        luego los que requieren una conversión implícita y por último los genéricos (``Any``).
+        El resultado va ordenado de más a menos específico y, a igual rango, por nombre.
+        """
+        matches: list[SocketMatch] = []
+        for cls in self._types.values():
+            candidates = cls.inputs if origin_is_output else cls.outputs
+            best: tuple[int, int, str] | None = None  # (rango, posición, nombre del socket)
+            for index, spec in enumerate(candidates):
+                if origin_is_output:
+                    compatible = is_compatible(socket_type, spec.type)
+                else:
+                    compatible = is_compatible(spec.type, socket_type)
+                if not compatible:
+                    continue
+                if spec.type is socket_type:
+                    rank = 0
+                elif SocketType.ANY in (spec.type, socket_type):
+                    rank = 2
+                else:
+                    rank = 1
+                if best is None or (rank, index) < best[:2]:
+                    best = (rank, index, spec.name)
+            if best is not None:
+                matches.append(SocketMatch(cls, best[2], rank=best[0]))
+        matches.sort(key=lambda m: (m.rank, m.node_type.label.lower()))
+        return matches
 
     def load_entry_points(self, group: str = ENTRY_POINT_GROUP) -> list[str]:
         """Carga plugins instalados. Devuelve los mensajes de error (no lanza)."""
