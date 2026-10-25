@@ -16,7 +16,7 @@ from palantir_nodes.codegen import helpers
 from palantir_nodes.core.errors import PalantirError
 from palantir_nodes.core.types import conversion_between
 from palantir_nodes.engine.plan import ExecutionPlan, PlanNode
-from palantir_nodes.nodes.base import NodeDefinition
+from palantir_nodes.nodes.base import Expr, NodeDefinition
 
 _RESERVED = (
     set(keyword.kwlist)
@@ -123,8 +123,10 @@ class CodeGenerator:
             node = plan.nodes[node_id]
             definition = node.definition
             inputs = self._input_exprs(node, exprs)
+            params, param_lines = self._param_exprs(node, exprs)
             self._wanted = consumed[node_id]
-            fragment = definition().generate_code(self, inputs, dict(node.params))
+            fragment = definition().generate_code(self, inputs, params)
+            fragment.lines = [*param_lines, *fragment.lines]
             for spec in definition.outputs:
                 if spec.name in self._wanted:
                     exprs[(node_id, spec.name)] = fragment.outputs[spec.name]
@@ -189,6 +191,31 @@ class CodeGenerator:
             else:
                 result[spec.name] = self.lit(node.input_values[spec.name])
         return result
+
+    def _param_exprs(
+        self, node: PlanNode, exprs: dict[tuple[str, str], str]
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Parámetros del nodo para generar su código, y las líneas que calculan los conectados.
+
+        Un parámetro cuyo socket está conectado se guarda en una variable (convertida y
+        normalizada igual que lo hace el motor) y el nodo lo recibe como :class:`Expr`.
+        """
+        params: dict[str, Any] = dict(node.params)
+        lines: list[str] = []
+        incoming = self.plan.incoming.get(node.id, {})
+        for spec in node.definition.connectable_params():
+            if spec.name not in incoming:
+                continue
+            src_id, sock = incoming[spec.name]
+            expr = exprs[(src_id, sock)]
+            src_type = self.plan.nodes[src_id].definition.output(sock).type
+            conv = conversion_between(src_type, spec.socket_type)
+            if conv:
+                expr = conv.template.format(expr)
+            var = self.new_var(spec.name)
+            lines.append(f"{var} = {spec.coerce_expr(expr)}")
+            params[spec.name] = Expr(var)
+        return params, lines
 
     # -- ensamblado --------------------------------------------------------------------
 

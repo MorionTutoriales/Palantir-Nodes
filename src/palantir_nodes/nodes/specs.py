@@ -27,6 +27,17 @@ def _humanize(name: str) -> str:
     return name.replace("_", " ").strip().capitalize()
 
 
+# Tipos de parámetro que pueden recibir su valor desde otro nodo y el tipo de socket que usan.
+_PARAM_SOCKET_TYPES: dict[ParamKind, SocketType] = {
+    ParamKind.INT: SocketType.INTEGER,
+    ParamKind.FLOAT: SocketType.FLOAT,
+    ParamKind.BOOL: SocketType.BOOLEAN,
+    ParamKind.COLOR: SocketType.COLOR,
+    ParamKind.VECTOR2: SocketType.VECTOR2,
+    ParamKind.VECTOR3: SocketType.VECTOR3,
+}
+
+
 @dataclass(frozen=True)
 class ParamSpec:
     """Parámetro configurable de un nodo.
@@ -48,10 +59,65 @@ class ParamSpec:
     file_filter: str = ""
     save_dialog: bool = False
     tooltip: str = ""
+    # Si el tipo lo permite, el parámetro tiene además un socket de entrada: se puede escribir
+    # el valor o conectar la salida de otro nodo (que entonces lo sustituye).
+    connectable: bool = True
 
     @property
     def display_label(self) -> str:
         return self.label or _humanize(self.name)
+
+    @property
+    def socket_type(self) -> SocketType | None:
+        """Tipo del socket de entrada del parámetro, o ``None`` si no se puede conectar."""
+        return _PARAM_SOCKET_TYPES.get(self.kind) if self.connectable else None
+
+    def as_input(self) -> InputSpec | None:
+        """El socket del parámetro como una entrada con valor por defecto editable."""
+        socket_type = self.socket_type
+        if socket_type is None:
+            return None
+        return InputSpec(
+            self.name,
+            socket_type,
+            label=self.label,
+            default=self.default,
+            minimum=self.minimum,
+            maximum=self.maximum,
+            step=self.step,
+            tooltip=self.tooltip,
+        )
+
+    def coerce_expr(self, expr: str) -> str:
+        """Expresión Python equivalente a :meth:`coerce` para un valor que llega por un socket.
+
+        Solo para los tipos con socket. El script exportado la usa para que un valor conectado
+        se recorte y normalice igual que en el motor.
+        """
+
+        def clamp(inner: str, cast: str) -> str:
+            if self.minimum is not None:
+                inner = f"max({inner}, {self._bound(self.minimum, cast)})"
+            if self.maximum is not None:
+                inner = f"min({inner}, {self._bound(self.maximum, cast)})"
+            return inner
+
+        match self.kind:
+            case ParamKind.INT:
+                return clamp(f"int(round({expr}))", "int")
+            case ParamKind.FLOAT:
+                return clamp(f"float({expr})", "float")
+            case ParamKind.BOOL:
+                return f"bool({expr})"
+            case ParamKind.COLOR:
+                return f"tuple(max(0, min(255, int(c))) for c in {expr})"
+            case ParamKind.VECTOR2 | ParamKind.VECTOR3:
+                return f"tuple({clamp('float(c)', 'float')} for c in {expr})"
+        raise ValueError(f"El parámetro '{self.name}' ({self.kind.value}) no tiene socket")
+
+    @staticmethod
+    def _bound(value: float, cast: str) -> str:
+        return repr(int(value) if cast == "int" else float(value))
 
     def _clamp(self, value: float) -> float:
         if self.minimum is not None and value < self.minimum:

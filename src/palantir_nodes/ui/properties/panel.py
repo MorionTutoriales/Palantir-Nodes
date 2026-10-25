@@ -199,10 +199,16 @@ class PropertiesPanel(QWidget):
         form = QFormLayout(sockets)
         for spec in definition.inputs:
             form.addRow(self._socket_label(spec.display_label, spec.type), QLabel("entrada"))
+        for param in definition.connectable_params():
+            form.addRow(
+                self._socket_label(param.display_label, param.socket_type),
+                QLabel("entrada (parámetro)"),
+            )
         for spec in definition.outputs:
             form.addRow(self._socket_label(spec.display_label, spec.type), QLabel("salida"))
         layout.addWidget(sockets)
         layout.addStretch(1)
+        self._refresh_connected()
 
     @staticmethod
     def _socket_label(label: str, socket_type) -> QLabel:
@@ -238,10 +244,14 @@ class PropertiesPanel(QWidget):
         if self.node_id is None:
             return
         connected = self.graph.connected_inputs(self.node_id)
-        for name, widget in self._input_widgets.items():
+        for name, widget in (*self._input_widgets.items(), *self._param_widgets.items()):
             is_connected = name in connected
             widget.setEnabled(not is_connected)
-            widget.setToolTip("Conectada: el valor proviene de otro nodo" if is_connected else "")
+            if is_connected:
+                widget.setToolTip("Conectado: el valor proviene de otro nodo")
+            else:
+                spec = getattr(widget, "spec", None)
+                widget.setToolTip(spec.tooltip if spec is not None else "")
 
     # -- eventos del grafo -------------------------------------------------------------
 

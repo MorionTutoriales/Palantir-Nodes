@@ -4,8 +4,9 @@ import cv2
 import numpy as np
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, Expr, NodeDefinition
 from palantir_nodes.nodes.categories import IMAGE
+from palantir_nodes.nodes.library._codegen import odd_expr, positive_int_expr
 from palantir_nodes.nodes.library._cv import (
     INTERPOLATION,
     KERNEL_SHAPES,
@@ -114,9 +115,9 @@ class GaussianBlur(NodeDefinition):
 
     def generate_code(self, gen, inputs, params):
         o = gen.new_var("blurred")
-        k = odd(params["ksize"])
+        k, extra = odd_expr(gen, params["ksize"])
         line = f"{o} = cv2.GaussianBlur({inputs['image']}, ({k}, {k}), {params['sigma']!r})"
-        return CodeFragment([line], {"image": o})
+        return CodeFragment([*extra, line], {"image": o})
 
 
 @register_node
@@ -138,8 +139,9 @@ class MedianBlur(NodeDefinition):
 
     def generate_code(self, gen, inputs, params):
         o = gen.new_var("median")
-        line = f"{o} = cv2.medianBlur({inputs['image']}, {odd(params['ksize'], 3)})"
-        return CodeFragment([line], {"image": o})
+        k, extra = odd_expr(gen, params["ksize"], 3)
+        line = f"{o} = cv2.medianBlur({inputs['image']}, {k})"
+        return CodeFragment([*extra, line], {"image": o})
 
 
 _THRESH_TYPES = {
@@ -202,7 +204,10 @@ class Threshold(NodeDefinition):
         o = gen.new_var("thresholded")
         used = gen.new_var("used_threshold") if gen.wanted("threshold") else "_"
         flags = "cv2.THRESH_" + params["method"].upper()
-        if params["otsu"]:
+        otsu = params["otsu"]
+        if isinstance(otsu, Expr):
+            flags += f" | (cv2.THRESH_OTSU if {otsu} else 0)"
+        elif otsu:
             flags += " | cv2.THRESH_OTSU"
         line = (
             f"{used}, {o} = cv2.threshold(as_gray({inputs['image']}), "
@@ -261,11 +266,12 @@ class AdaptiveThreshold(NodeDefinition):
             else ("cv2.ADAPTIVE_THRESH_GAUSSIAN_C")
         )
         kind = "cv2.THRESH_BINARY" if params["type"] == "binary" else "cv2.THRESH_BINARY_INV"
+        block, extra = odd_expr(gen, params["block_size"], 3)
         line = (
             f"{o} = cv2.adaptiveThreshold(as_gray({inputs['image']}), {params['maxval']!r}, "
-            f"{method}, {kind}, {odd(params['block_size'], 3)}, {params['c']!r})"
+            f"{method}, {kind}, {block}, {params['c']!r})"
         )
-        return CodeFragment([line], {"image": o})
+        return CodeFragment([*extra, line], {"image": o})
 
 
 @register_node
@@ -484,14 +490,27 @@ class Rotate(NodeDefinition):
             f"{m} = cv2.getRotationMatrix2D(({w} / 2, {h} / 2), {params['angle']!r}, 1.0)",
         ]
         new_w, new_h = w, h
-        if params["expand"]:
+        expand = params["expand"]
+
+        def grow(nw: str, nh: str) -> list[str]:
+            return [
+                f"{nw} = int({h} * abs({m}[0, 1]) + {w} * abs({m}[0, 0]))",
+                f"{nh} = int({h} * abs({m}[0, 0]) + {w} * abs({m}[0, 1]))",
+                f"{m}[0, 2] += {nw} / 2 - {w} / 2",
+                f"{m}[1, 2] += {nh} / 2 - {h} / 2",
+            ]
+
+        if isinstance(expand, Expr):  # se decide al ejecutar el script
             new_w, new_h = gen.new_var("new_width"), gen.new_var("new_height")
             lines += [
-                f"{new_w} = int({h} * abs({m}[0, 1]) + {w} * abs({m}[0, 0]))",
-                f"{new_h} = int({h} * abs({m}[0, 0]) + {w} * abs({m}[0, 1]))",
-                f"{m}[0, 2] += {new_w} / 2 - {w} / 2",
-                f"{m}[1, 2] += {new_h} / 2 - {h} / 2",
+                f"if {expand}:",
+                *[f"    {line}" for line in grow(new_w, new_h)],
+                "else:",
+                f"    {new_w}, {new_h} = {w}, {h}",
             ]
+        elif expand:
+            new_w, new_h = gen.new_var("new_width"), gen.new_var("new_height")
+            lines += grow(new_w, new_h)
         lines.append(
             f"{o} = cv2.warpAffine({img}, {m}, (max(1, {new_w}), max(1, {new_h})), flags={interp})"
         )
@@ -610,15 +629,21 @@ class InRange(NodeDefinition):
         gen.helper("as_bgr")
         src, o = gen.new_var("source"), gen.new_var("mask")
         lines = [f"{src} = as_bgr({inputs['image']})"]
-        if params["use_hsv"]:
-            lines.append(f"{src} = cv2.cvtColor({src}, cv2.COLOR_BGR2HSV)")
+        use_hsv = params["use_hsv"]
+        to_hsv = f"{src} = cv2.cvtColor({src}, cv2.COLOR_BGR2HSV)"
+        if isinstance(use_hsv, Expr):
+            lines += [f"if {use_hsv}:", f"    {to_hsv}"]
+        elif use_hsv:
+            lines.append(to_hsv)
 
-        def bounds(vec):
-            return [int(max(0, min(255, round(v)))) for v in vec]
+        def bound(vec) -> str:
+            if isinstance(vec, Expr):  # mismo cálculo que el motor, al ejecutar
+                return f"np.clip(np.rint({vec}), 0, 255).astype(np.uint8)"
+            values = [int(max(0, min(255, round(v)))) for v in vec]
+            return f"np.array({values!r}, dtype=np.uint8)"
 
         lines.append(
-            f"{o} = cv2.inRange({src}, np.array({bounds(params['lower'])!r}, dtype=np.uint8), "
-            f"np.array({bounds(params['upper'])!r}, dtype=np.uint8))"
+            f"{o} = cv2.inRange({src}, {bound(params['lower'])}, {bound(params['upper'])})"
         )
         return CodeFragment(lines, {"mask": o})
 
@@ -639,8 +664,9 @@ class Erode(NodeDefinition):
 
     def generate_code(self, gen, inputs, params):
         k, o = gen.new_var("kernel"), gen.new_var("eroded")
-        size = max(1, int(params["ksize"]))
+        size, extra = positive_int_expr(gen, params["ksize"])
         lines = [
+            *extra,
             f"{k} = cv2.getStructuringElement("
             f"cv2.MORPH_{params['shape'].upper()}, ({size}, {size}))",
             f"{o} = cv2.erode({inputs['image']}, {k}, iterations={params['iterations']})",
@@ -666,8 +692,9 @@ class Dilate(NodeDefinition):
 
     def generate_code(self, gen, inputs, params):
         k, o = gen.new_var("kernel"), gen.new_var("dilated")
-        size = max(1, int(params["ksize"]))
+        size, extra = positive_int_expr(gen, params["ksize"])
         lines = [
+            *extra,
             f"{k} = cv2.getStructuringElement("
             f"cv2.MORPH_{params['shape'].upper()}, ({size}, {size}))",
             f"{o} = cv2.dilate({inputs['image']}, {k}, iterations={params['iterations']})",
@@ -705,7 +732,7 @@ class MorphologyEx(NodeDefinition):
 
     def generate_code(self, gen, inputs, params):
         k, o = gen.new_var("kernel"), gen.new_var("morphed")
-        size = max(1, int(params["ksize"]))
+        size, extra = positive_int_expr(gen, params["ksize"])
         op = {
             "open": "OPEN",
             "close": "CLOSE",
@@ -714,6 +741,7 @@ class MorphologyEx(NodeDefinition):
             "blackhat": "BLACKHAT",
         }[params["op"]]
         lines = [
+            *extra,
             f"{k} = cv2.getStructuringElement("
             f"cv2.MORPH_{params['shape'].upper()}, ({size}, {size}))",
             f"{o} = cv2.morphologyEx({inputs['image']}, cv2.MORPH_{op}, {k}, "
@@ -832,10 +860,14 @@ class DrawContours(NodeDefinition):
     def generate_code(self, gen, inputs, params):
         gen.helper("as_bgr")
         o = gen.new_var("drawn")
-        bgr = rgb_to_bgr(params["color"])
+        color = params["color"]
+        if isinstance(color, Expr):  # RGB -> BGR al ejecutar el script
+            bgr = f"({color}[2], {color}[1], {color}[0])"
+        else:
+            bgr = repr(rgb_to_bgr(color))
         lines = [
             f"{o} = np.array(as_bgr({inputs['image']}))",
-            f"cv2.drawContours({o}, list({inputs['contours']}), {params['index']}, {bgr!r}, "
+            f"cv2.drawContours({o}, list({inputs['contours']}), {params['index']}, {bgr}, "
             f"{params['thickness']})",
         ]
         return CodeFragment(lines, {"image": o})

@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, Expr, NodeDefinition
 from palantir_nodes.nodes.categories import COMPOSITE
 from palantir_nodes.nodes.library._cv import as_bgr, as_gray, image_in, match
 from palantir_nodes.nodes.registry import register_node
@@ -192,7 +192,11 @@ class MaskImage(NodeDefinition):
         gen.helper("as_gray")
         img = inputs["image"]
         m, keep, o = gen.new_var("mask"), gen.new_var("keep"), gen.new_var("masked")
-        cond = f"({m} == 0)" if params["invert"] else f"({m} > 0)"
+        invert = params["invert"]
+        if isinstance(invert, Expr):  # se decide al ejecutar el script
+            cond = f"(({m} == 0) if {invert} else ({m} > 0))"
+        else:
+            cond = f"({m} == 0)" if invert else f"({m} > 0)"
         lines = [
             f"{m} = as_gray({inputs['mask']})",
             f"if {m}.shape[:2] != {img}.shape[:2]:",

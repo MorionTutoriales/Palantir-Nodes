@@ -32,6 +32,7 @@ class _Row:
     label: str
     y: float
     spec: ParamSpec | None = None  # parámetro o valor editable de una entrada
+    socketed: bool = False  # parámetro con socket de entrada (ver ``ParamSpec.socket_type``)
 
 
 PREVIEW_WIDTH = 172.0  # espacio máximo de la miniatura dentro del nodo
@@ -89,7 +90,12 @@ class NodeItem(QGraphicsItem):
             self._rows.append(_Row("output", spec.name, spec.display_label, y))
             y += self.ROW
         for spec in self.definition.params:
-            self._rows.append(_Row("param", spec.name, spec.display_label, y, spec))
+            socketed = spec.socket_type is not None
+            if socketed:  # además de editarse, el parámetro se puede alimentar desde otro nodo
+                socket = SocketItem(self, spec.name, spec.socket_type, is_output=False)
+                socket.setPos(0.0, y + self.ROW / 2)
+                self.input_sockets[spec.name] = socket
+            self._rows.append(_Row("param", spec.name, spec.display_label, y, spec, socketed))
             y += self.ROW
         for spec in self.definition.inputs:
             socket = SocketItem(self, spec.name, spec.type, is_output=False)
@@ -237,7 +243,8 @@ class NodeItem(QGraphicsItem):
             painter.setPen(text_color)
             painter.drawText(rect, align_v | Qt.AlignmentFlag.AlignRight, row.label)
             return
-        if row.kind == "input" and (row.spec is None or row.name in self._connected):
+        driven = row.socketed and row.name in self._connected  # su valor viene de otro nodo
+        if (row.kind == "input" and (row.spec is None or row.name in self._connected)) or driven:
             rect = QRectF(12, row.y, self.WIDTH - 22, self.ROW)
             painter.setPen(text_color)
             painter.drawText(rect, align_v | Qt.AlignmentFlag.AlignLeft, row.label)
@@ -247,7 +254,7 @@ class NodeItem(QGraphicsItem):
         self._paint_field(painter, row, values.get(row.name))
 
     def _field_rect(self, row: _Row) -> QRectF:
-        left = 12.0 if row.kind == "input" else 8.0
+        left = 12.0 if row.kind == "input" or row.socketed else 8.0
         return QRectF(left, row.y + 2, self.WIDTH - left - 8, self.ROW - 4)
 
     def _paint_field(self, painter: QPainter, row: _Row, value: Any) -> None:
@@ -297,7 +304,7 @@ class NodeItem(QGraphicsItem):
     def _is_editable(self, row: _Row) -> bool:
         if row.spec is None:
             return False
-        return row.kind == "param" or (row.kind == "input" and row.name not in self._connected)
+        return row.name not in self._connected  # un valor conectado no se edita en el nodo
 
     def field_at(self, pos: QPointF) -> _Row | None:
         """Campo editable (parámetro o entrada sin conectar) bajo ``pos`` (coords. locales)."""
@@ -421,7 +428,10 @@ def socket_offset(definition, name: str, *, is_output: bool) -> tuple[float, flo
         if is_output and spec.name == name:
             return (NodeItem.WIDTH, y + NodeItem.ROW / 2)
         y += NodeItem.ROW
-    y += NodeItem.ROW * len(definition.params)
+    for param in definition.params:
+        if not is_output and param.name == name and param.socket_type is not None:
+            return (0.0, y + NodeItem.ROW / 2)
+        y += NodeItem.ROW
     for spec in definition.inputs:
         if not is_output and spec.name == name:
             return (0.0, y + NodeItem.ROW / 2)

@@ -47,13 +47,13 @@ def test_float_output_matches_float_inputs_only(registry):
 
 def test_convertible_types_rank_after_exact_ones(registry):
     ints = registry.compatible_with(T.INTEGER, origin_is_output=True)
-    assert ints and not any(m.exact for m in ints)  # no hay entradas Integer
-    assert by_label(ints)["Add"].rank == 1 and by_label(ints)["Add"].socket == "a"
-    assert by_label(ints)["Draw Contours"].rank == 2  # una entrada Any acepta de todo
-    assert [m.rank for m in ints] == sorted(m.rank for m in ints)  # convertibles antes que Any
-    flags = registry.compatible_with(T.BOOLEAN, origin_is_output=True)
-    assert flags and not any(m.exact for m in flags)
-    assert {m.rank for m in flags} == {1, 2}
+    by = by_label(ints)
+    assert by["Gaussian Blur"].exact and by["Gaussian Blur"].socket == "ksize"  # parámetro entero
+    assert by["Add"].rank == 1 and by["Add"].socket == "a"  # Integer -> Float
+    assert [m.rank for m in ints] == sorted(m.rank for m in ints)  # exactos antes que el resto
+    flags = by_label(registry.compatible_with(T.BOOLEAN, origin_is_output=True))
+    assert flags["Mask"].exact and flags["Mask"].socket == "invert"  # parámetro booleano
+    assert flags["Add"].rank == 1  # Boolean -> Float
     floats = registry.compatible_with(T.FLOAT, origin_is_output=False)  # desde una entrada Float
     ranks = [m.rank for m in floats]
     assert ranks == sorted(ranks) and 0 in ranks and 1 in ranks
@@ -104,7 +104,7 @@ def test_everything_offered_can_really_connect_and_nothing_connectable_is_missin
                     graph = Graph(registry)
                     a = graph.add_node(origin_cls.type_id)
                     b = graph.add_node(other.type_id)
-                    candidates = other.inputs if is_output else other.outputs
+                    candidates = other.socket_inputs() if is_output else other.outputs
                     connectable = [
                         c
                         for c in candidates

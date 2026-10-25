@@ -51,6 +51,12 @@ def _validate_definition(cls: NodeType) -> None:
         names = [spec.name for spec in specs]
         if len(names) != len(set(names)):
             raise RegistryError(f"{name}: nombres duplicados en {group}: {names}")
+    sockets = [spec.name for spec in cls.socket_inputs()]
+    if len(sockets) != len(set(sockets)):
+        repeated = sorted({n for n in sockets if sockets.count(n) > 1})
+        raise RegistryError(
+            f"{name}: una entrada y un parámetro conectable comparten nombre: {repeated}"
+        )
     try:
         cls.default_params()
         cls.default_input_values()
@@ -143,7 +149,7 @@ class NodeRegistry:
         """
         matches: list[SocketMatch] = []
         for cls in self._types.values():
-            candidates = cls.inputs if origin_is_output else cls.outputs
+            candidates = cls.socket_inputs() if origin_is_output else cls.outputs
             best: tuple[int, int, str] | None = None  # (rango, posición, nombre del socket)
             for index, spec in enumerate(candidates):
                 if origin_is_output:

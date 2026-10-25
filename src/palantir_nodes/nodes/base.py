@@ -25,6 +25,31 @@ class CodeFragment:
     cleanup: list[str] = field(default_factory=list)  # en ``finally`` (liberar recursos)
 
 
+class Expr:
+    """Expresión Python simbólica que ocupa el lugar de un valor al generar código.
+
+    Cuando un parámetro recibe su valor desde otro nodo, ``generate_code`` lo recibe como una
+    ``Expr`` con el nombre de la variable que lo contiene. Se puede insertar directamente en
+    el texto generado (``f"{params['sigma']!r}"``), pero no se puede evaluar en el momento de
+    generar: los nodos que decidan algo según ese valor deben generar código con la decisión.
+    """
+
+    __slots__ = ("code",)
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+    def __repr__(self) -> str:
+        return self.code
+
+    __str__ = __repr__
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            f"'{self.code}' se conoce solo al ejecutar el script: genera código para decidir"
+        )
+
+
 class NodeDefinition:
     """Base de todos los tipos de nodo.
 
@@ -67,8 +92,24 @@ class NodeDefinition:
         return ()
 
     @classmethod
+    def connectable_params(cls) -> tuple[ParamSpec, ...]:
+        """Parámetros que además tienen un socket de entrada (valor escrito o conectado)."""
+        return tuple(spec for spec in cls.params if spec.socket_type is not None)
+
+    @classmethod
+    def socket_inputs(cls) -> tuple[InputSpec, ...]:
+        """Todos los sockets de entrada: las entradas del nodo y los de sus parámetros."""
+        extra = tuple(spec.as_input() for spec in cls.connectable_params())
+        return (*cls.inputs, *extra)
+
+    @classmethod
     def input(cls, name: str) -> InputSpec | None:
-        return next((spec for spec in cls.inputs if spec.name == name), None)
+        """Socket de entrada por nombre (incluye los de parámetros conectables)."""
+        spec = next((spec for spec in cls.inputs if spec.name == name), None)
+        if spec is not None:
+            return spec
+        param = cls.param(name)
+        return param.as_input() if param is not None else None
 
     @classmethod
     def output(cls, name: str) -> OutputSpec | None:

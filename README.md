@@ -59,8 +59,8 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   grafo se sigue calculando.
 - **Ejecución fuera del hilo de la interfaz** (`QThread`) sobre una copia del grafo. Si se
   piden varias ejecuciones mientras se procesa, se colapsan en una sola.
-- **45 nodos con procesamiento y exportación a Python:** los 44 de la especificación original
-  (una prueba comprueba la lista completa) más `Integer`. Entradas (Load Image, Load Video,
+- **47 nodos con procesamiento y exportación a Python:** los 44 de la especificación original
+  (una prueba comprueba la lista completa) más `Integer`, `Vector2` y `Vector3`. Entradas (Load Image, Load Video,
   Webcam, Number, Integer, Boolean, Color), imagen (Grayscale, Gaussian/Median Blur,
   Threshold, Adaptive Threshold, Canny, Resize, Crop, Rotate, Flip, HSV, InRange, Erode,
   Dilate, Morphological, Find/Draw Contours), matemáticas (Add, Subtract, Multiply, Divide,
@@ -164,6 +164,26 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
   conecta directamente como antes, soltar sobre un nodo no hace nada, y arrastrar una conexión
   existente fuera de una entrada sigue eliminándola.
 
+- **Parámetros conectables (escribir el valor o conectar otro nodo):** los parámetros enteros,
+  decimales, booleanos, de color y de vector (35 en 15 nodos: Kernel, Sigma, Umbral, Bloque, C,
+  Ángulo, Mínimo/Máximo de InRange, Grosor, Invertir…) tienen **su propio socket de entrada** a
+  la izquierda de la fila, como en Blender.
+  - **Sin conectar** se editan igual que antes (clic, texto o arrastre). **Conectado**, el campo se
+    sustituye por la etiqueta y el valor viene del otro nodo; al desconectar vuelve el valor que
+    tenía escrito (no se pierde).
+  - El valor conectado pasa por las **mismas reglas que uno escrito**: conversión implícita de tipos
+    (p. ej. `Float → Integer` redondea) y recorte al rango del parámetro (un `999` en un kernel de
+    máximo 99 se queda en 99). Si el nodo de origen falla, el nodo alimentado queda bloqueado.
+  - Funciona en todo: conectar con el ratón, el **buscador al soltar una conexión** (lista los nodos
+    que pueden alimentar el parámetro, o los parámetros a los que se puede conectar una salida),
+    proyectos, copiar/pegar, deshacer, tiempo real y la **exportación a Python** (el script calcula
+    el valor conectado con la misma normalización que el motor).
+  - No tienen socket los enumerados, textos y rutas, ni el propio valor de los nodos `Number`,
+    `Integer`, `Boolean`, `Color`, `Vector2`, `Vector3`, ni los parámetros de las fuentes de
+    video/cámara y `FPS` de Save Video.
+  - Nuevos nodos de entrada **`Vector2`** y **`Vector3`** para alimentar los parámetros de vector.
+  - Para que un nodo declare un parámetro sin socket: `ParamSpec(..., connectable=False)`.
+
 ### No implementado todavía
 
 - **Tipo de socket `Video`:** Load Video y Webcam entregan un fotograma (`Image`) por
@@ -217,5 +237,7 @@ Todas las acciones de la barra superior funcionan.
 13. Las preferencias se guardan, se aplican al instante y un archivo dañado no impide arrancar.
 14. Arrastrar un socket a un espacio vacío abre un buscador filtrado por compatibilidad y crea
     el nodo conectado en un solo paso de deshacer.
-15. `pytest` pasa (485 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
+    con el mismo resultado que escribir el valor, también en el script exportado.
+16. `pytest` pasa (613 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias y UI real).

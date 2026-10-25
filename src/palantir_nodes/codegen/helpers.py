@@ -46,6 +46,7 @@ _SAVE_IMAGE = '''def save_image(img: np.ndarray, path: str) -> None:
 HELPERS: dict[str, Helper] = {
     "to_uint8": Helper(_source(_cv.to_uint8)),
     "read_image": Helper(_READ_FLAGS + "\n\n\n" + _source(read_image), ("to_uint8",)),
+    "odd": Helper(_source(_cv.odd)),
     "as_gray": Helper(_source(_cv.as_gray)),
     "as_bgr": Helper(_source(_cv.as_bgr)),
     "match": Helper(_source(_cv.match), ("as_bgr",)),

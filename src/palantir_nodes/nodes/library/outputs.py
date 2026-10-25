@@ -126,7 +126,9 @@ class SaveVideo(NodeDefinition):
             save_dialog=True,
             file_filter="Video (*.mp4 *.avi);;Todos (*)",
         ),
-        ParamSpec("fps", ParamKind.FLOAT, 30.0, label="FPS", minimum=1.0, maximum=240.0),
+        ParamSpec(
+            "fps", ParamKind.FLOAT, 30.0, label="FPS", minimum=1.0, maximum=240.0, connectable=False
+        ),
         ParamSpec("codec", ParamKind.ENUM, "mp4v", label="Códec", options=VIDEO_CODECS),
     )
 

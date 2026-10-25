@@ -103,7 +103,7 @@ class Number(NodeDefinition):
     category = INPUT
     description = "Valor numérico decimal."
     outputs = (OutputSpec("value", T.FLOAT),)
-    params = (ParamSpec("value", ParamKind.FLOAT, 0.5, label="Valor"),)
+    params = (ParamSpec("value", ParamKind.FLOAT, 0.5, label="Valor", connectable=False),)
 
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
@@ -120,7 +120,7 @@ class Integer(NodeDefinition):
     category = INPUT
     description = "Valor numérico entero."
     outputs = (OutputSpec("value", T.INTEGER),)
-    params = (ParamSpec("value", ParamKind.INT, 1, label="Valor"),)
+    params = (ParamSpec("value", ParamKind.INT, 1, label="Valor", connectable=False),)
 
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
@@ -137,7 +137,7 @@ class BooleanValue(NodeDefinition):
     category = INPUT
     description = "Valor verdadero o falso."
     outputs = (OutputSpec("value", T.BOOLEAN),)
-    params = (ParamSpec("value", ParamKind.BOOL, True, label="Valor"),)
+    params = (ParamSpec("value", ParamKind.BOOL, True, label="Valor", connectable=False),)
 
     def process(self, ctx, inputs, params):
         return {"value": params["value"]}
@@ -154,7 +154,9 @@ class ColorValue(NodeDefinition):
     category = INPUT
     description = "Color RGB."
     outputs = (OutputSpec("color", T.COLOR),)
-    params = (ParamSpec("color", ParamKind.COLOR, (255, 255, 255), label="Color"),)
+    params = (
+        ParamSpec("color", ParamKind.COLOR, (255, 255, 255), label="Color", connectable=False),
+    )
 
     def process(self, ctx, inputs, params):
         return {"color": params["color"]}
@@ -180,7 +182,7 @@ class LoadVideo(NodeDefinition):
     outputs = (OutputSpec("image", T.IMAGE, "Fotograma"),)
     params = (
         ParamSpec("path", ParamKind.FILE_PATH, "", label="Archivo", file_filter=VIDEO_FILTER),
-        ParamSpec("loop", ParamKind.BOOL, False, label="Repetir"),
+        ParamSpec("loop", ParamKind.BOOL, False, label="Repetir", connectable=False),
     )
 
     @classmethod
@@ -236,7 +238,11 @@ class Webcam(NodeDefinition):
     description = "Fotogramas de una cámara. Solo funciona en tiempo real (Ejecutar, F5)."
     is_source = True
     outputs = (OutputSpec("image", T.IMAGE, "Fotograma"),)
-    params = (ParamSpec("index", ParamKind.INT, 0, label="Cámara", minimum=0, maximum=9),)
+    params = (
+        ParamSpec(
+            "index", ParamKind.INT, 0, label="Cámara", minimum=0, maximum=9, connectable=False
+        ),
+    )
 
     @classmethod
     def open_source(cls, params):
@@ -263,3 +269,39 @@ class Webcam(NodeDefinition):
             setup=[f"{cap} = open_camera_capture({params['index']})"],
             cleanup=[f"if {cap} is not None:", f"    {cap}.release()"],
         )
+
+
+@register_node
+class Vector2Value(NodeDefinition):
+    type_id = "input.vector2"
+    label = "Vector2"
+    category = INPUT
+    description = "Vector de dos componentes."
+    outputs = (OutputSpec("vector", T.VECTOR2, "Vector"),)
+    params = (ParamSpec("value", ParamKind.VECTOR2, (0.0, 0.0), label="Valor", connectable=False),)
+
+    def process(self, ctx, inputs, params):
+        return {"vector": params["value"]}
+
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("vector2")
+        return CodeFragment([f"{v} = {tuple(params['value'])!r}"], {"vector": v})
+
+
+@register_node
+class Vector3Value(NodeDefinition):
+    type_id = "input.vector3"
+    label = "Vector3"
+    category = INPUT
+    description = "Vector de tres componentes."
+    outputs = (OutputSpec("vector", T.VECTOR3, "Vector"),)
+    params = (
+        ParamSpec("value", ParamKind.VECTOR3, (0.0, 0.0, 0.0), label="Valor", connectable=False),
+    )
+
+    def process(self, ctx, inputs, params):
+        return {"vector": params["value"]}
+
+    def generate_code(self, gen, inputs, params):
+        v = gen.new_var("vector3")
+        return CodeFragment([f"{v} = {tuple(params['value'])!r}"], {"vector": v})

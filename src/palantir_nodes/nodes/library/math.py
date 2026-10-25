@@ -3,7 +3,7 @@
 import operator
 
 from palantir_nodes.core.types import SocketType as T
-from palantir_nodes.nodes.base import CodeFragment, NodeDefinition
+from palantir_nodes.nodes.base import CodeFragment, Expr, NodeDefinition
 from palantir_nodes.nodes.categories import MATH
 from palantir_nodes.nodes.registry import register_node
 from palantir_nodes.nodes.specs import InputSpec, OutputSpec, ParamKind, ParamSpec
@@ -163,8 +163,12 @@ class MapRange(NodeDefinition):
             '    raise ValueError("El rango de origen tiene longitud cero")',
             f"{t} = ({v} - {fmin}) / {span}",
         ]
-        if params["clamp"]:
-            lines.append(f"{t} = min(max({t}, 0.0), 1.0)")
+        clamp = params["clamp"]
+        limit = f"{t} = min(max({t}, 0.0), 1.0)"
+        if isinstance(clamp, Expr):  # se decide al ejecutar el script
+            lines += [f"if {clamp}:", f"    {limit}"]
+        elif clamp:
+            lines.append(limit)
         lines.append(f"{r} = {tmin} + {t} * ({tmax} - {tmin})")
         return CodeFragment(lines, {"result": r})
 

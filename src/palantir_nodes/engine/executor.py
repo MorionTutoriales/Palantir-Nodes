@@ -116,7 +116,7 @@ class Executor:
                 continue
 
             try:
-                inputs, key = self._resolve(plan, node, incoming, result, keys, ctx)
+                inputs, params, key = self._resolve(plan, node, incoming, result, keys, ctx)
             except Exception as exc:
                 result.errors[node_id] = str(exc)
                 continue
@@ -132,7 +132,7 @@ class Executor:
                 t0 = time.perf_counter()
                 try:
                     ctx.node_id = node_id
-                    outputs = definition().process(ctx, inputs, dict(node.params))
+                    outputs = definition().process(ctx, inputs, params)
                     missing = [s.name for s in definition.outputs if s.name not in outputs]
                     if missing:
                         raise RuntimeError(f"El nodo no produjo la salida '{missing[0]}'")
@@ -172,9 +172,28 @@ class Executor:
         result: ExecutionResult,
         keys: dict[str, str],
         ctx: ExecContext,
-    ) -> tuple[dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        """Entradas, parámetros efectivos y clave de caché de un nodo.
+
+        Un parámetro con su socket conectado toma el valor del nodo de origen (convertido y
+        normalizado como cualquier otro valor del parámetro); si no, usa el escrito en el nodo.
+        """
         inputs: dict[str, Any] = {}
+        params = dict(node.params)
         parts: list[Any] = []
+        for spec in node.definition.connectable_params():
+            if spec.name not in incoming:
+                continue
+            src_id, src_socket = incoming[spec.name]
+            value = result.outputs[src_id][src_socket]
+            src_spec = plan.nodes[src_id].definition.output(src_socket)
+            conversion = conversion_between(src_spec.type, spec.socket_type)
+            if conversion is not None:
+                value = conversion.convert(value)
+            params[spec.name] = spec.coerce(value)
+            parts.append(
+                (spec.name, "param-link", keys[src_id], src_socket, spec.socket_type.value)
+            )
         for spec in node.definition.inputs:
             if spec.name in incoming:
                 src_id, src_socket = incoming[spec.name]
@@ -201,7 +220,7 @@ class Executor:
                 parts,
             )
         )
-        return inputs, hashlib.sha1(raw.encode("utf-8")).hexdigest()
+        return inputs, params, hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def _describe(exc: Exception) -> str:
