@@ -247,6 +247,8 @@ Para añadir un nodo, crea una subclase de `NodeDefinition` decorada con `@regis
       no abre nada. Solo mueven texto; para números o JSON usa un nodo personalizado que lo
       interprete.
     - **Seguridad:** un servidor abierto en `0.0.0.0` acepta a cualquiera de tu red.
+- **Aspecto de la interfaz:** iconos de [Lucide](https://lucide.dev) (ISC) dibujados con el color del skin; barra principal con el botón **Ejecutar** destacado, deshacer/rehacer y un menú **Exportar** (Python o ejecutable); barra de vista sobre el lienzo (cuadrícula, alejar, 100 %, acercar, encuadrar, miniaturas, enmarcar); paneles con barra de título propia (icono, separar y cerrar) y un panel **Nodos** con las categorías y un buscador, de donde se añade con doble clic o arrastrando hasta el editor. Se actualiza solo al activar librerías o crear nodos personalizados.
+- **Skins:** `Oscuro` (el original), `Medianoche`, `Bosque` y `Claro`, en **Preferencias → Apariencia** o **Ver → Skin**; se aplican al instante a ventanas, iconos y fondo del lienzo y se guardan en las preferencias (`skin`). Un skin **no puede cambiar los colores de los nodos ni de las conexiones** (lo comprueban las pruebas). Se definen en `skins.py` (solo datos).
 - **Chincheta para fijar el visor:** los nodos con imagen (los que la producen y los de salida)
   llevan una chincheta en la cabecera. Un clic deja el visor fijo en ese nodo aunque cambies la
   selección para editar otros; el título del visor añade «(fijado)». Otro clic la suelta (o fijar
@@ -350,5 +352,5 @@ Todas las acciones de la barra superior funcionan.
     el nodo conectado en un solo paso de deshacer.
 15. Cualquier parámetro numérico, booleano, de color o de vector se puede alimentar desde otro nodo,
     con el mismo resultado que escribir el valor, también en el script exportado.
-16. `pytest` pasa (1056 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
+16. `pytest` pasa (1100 pruebas: modelo, validación, motor, nodos, exportación, tiempo real,
     persistencia, frames, edición, previsualización, preferencias, nodos personalizados y UI real).

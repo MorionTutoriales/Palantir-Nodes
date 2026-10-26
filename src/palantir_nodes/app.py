@@ -9,6 +9,7 @@ from PySide6.QtCore import QLibraryInfo, QTranslator
 from PySide6.QtWidgets import QApplication
 
 from palantir_nodes.nodes.registry import load_builtin_nodes
+from palantir_nodes.ui import icons
 from palantir_nodes.ui.main_window import APP_NAME, MainWindow
 from palantir_nodes.ui.theme import apply_theme
 
@@ -34,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)
     install_spanish_qt_translations(app)
+    app.setWindowIcon(icons.app_icon())
     apply_theme(app)
 
     registry = load_builtin_nodes()

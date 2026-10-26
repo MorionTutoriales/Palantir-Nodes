@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from palantir_nodes.ui import icons
 from palantir_nodes.ui.theme import Colors
 
 ZOOM_MIN = 0.02
@@ -101,15 +102,24 @@ class ViewerPanel(QWidget):
         self.message.setWordWrap(True)
         self.message.setMargin(16)
         self.message.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.message.setStyleSheet(f"background: {Colors.EDITOR_BG}; color: {Colors.TEXT_DIM};")
+        self.empty_icon = QLabel()
+        self.empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty = QWidget()  # página de mensajes: un icono y el texto
+        self.empty.setObjectName("ViewerEmpty")
+        empty_layout = QVBoxLayout(self.empty)
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.setSpacing(0)
+        empty_layout.addStretch(1)
+        empty_layout.addWidget(self.empty_icon)
+        empty_layout.addWidget(self.message)
+        empty_layout.addStretch(1)
         self.stack = QStackedWidget()
-        self.stack.addWidget(self.message)
+        self.stack.addWidget(self.empty)
         self.stack.addWidget(self.canvas)
 
         self.source = QLabel()
-        self.source.setStyleSheet(f"color: {Colors.TEXT_DIM}; padding: 3px 6px;")
         self.info = QLabel()
-        self.info.setStyleSheet(f"color: {Colors.TEXT_DIM}; padding: 3px 6px;")
+        self._message_state = ("image", False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -117,15 +127,31 @@ class ViewerPanel(QWidget):
         layout.addWidget(self.source)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.info)
+        self.refresh_skin()
         self.show_message("Añade un Image Viewer o selecciona un nodo\ny pulsa Ejecutar.")
+
+    def refresh_skin(self) -> None:
+        """Vuelve a aplicar los colores del skin activo."""
+        self.canvas.setBackgroundBrush(QColor(Colors.EDITOR_BG))
+        self.empty.setStyleSheet(f"QWidget#ViewerEmpty {{ background: {Colors.EDITOR_BG}; }}")
+        for label in (self.source, self.info):
+            label.setStyleSheet(f"color: {Colors.TEXT_DIM}; padding: 3px 6px;")
+        icon_name, error = self._message_state
+        self._paint_message(icon_name, error)
+
+    def _paint_message(self, icon_name: str, error: bool) -> None:
+        color = Colors.LINK_INVALID if error else Colors.TEXT_DIM
+        self.message.setStyleSheet(f"background: transparent; color: {color};")
+        self.empty_icon.setStyleSheet("background: transparent;")
+        self.empty_icon.setPixmap(icons.pixmap(icon_name, color, 48))
 
     def show_message(self, text: str, *, error: bool = False, source: str = "") -> None:
         self.message.setText(text)
-        color = Colors.LINK_INVALID if error else Colors.TEXT_DIM
-        self.message.setStyleSheet(f"background: {Colors.EDITOR_BG}; color: {color};")
+        self._message_state = ("circle-alert" if error else "image", error)
+        self._paint_message(*self._message_state)
         self.source.setText(source)
         self.info.setText("")
-        self.stack.setCurrentWidget(self.message)
+        self.stack.setCurrentWidget(self.empty)
 
     def show_text(self, text: str, source: str = "") -> None:
         """Muestra un texto (seleccionable) en lugar de una imagen."""

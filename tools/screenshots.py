@@ -29,16 +29,19 @@ os.environ["PALANTIR_NODES_CONFIG_DIR"] = CONFIG
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
-from PySide6.QtGui import QFont  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from palantir_nodes.app import install_spanish_qt_translations  # noqa: E402
 from palantir_nodes.nodes.registry import load_builtin_nodes  # noqa: E402
+from palantir_nodes.skins import SKINS  # noqa: E402
 from palantir_nodes.ui.compile_dialog import CompileDialog  # noqa: E402
 from palantir_nodes.ui.custom_nodes_dialog import CustomNodesDialog  # noqa: E402
 from palantir_nodes.ui.libraries_dialog import LibrariesDialog  # noqa: E402
 from palantir_nodes.ui.main_window import MainWindow  # noqa: E402
+from palantir_nodes.ui.preferences_dialog import PreferencesDialog  # noqa: E402
 from palantir_nodes.ui.theme import apply_theme  # noqa: E402
 
 MONO = "Consolas" if sys.platform == "win32" else "Monospace"
@@ -109,8 +112,8 @@ def shot(widget, name: str) -> None:
     print("guardada", name)
 
 
-def editor_red_objects(scene_path: Path) -> None:
-    window = new_window()
+def build_red_graph(window: MainWindow, scene_path: Path) -> str:
+    """El grafo de ejemplo (detectar objetos rojos). Devuelve el id del Image Viewer."""
     ctl, graph = window.controller, window.graph
     load = ctl.add_node("input.load_image", (-1000, -60))
     ctl.set_param(load, "path", str(scene_path))
@@ -145,10 +148,49 @@ def editor_red_objects(scene_path: Path) -> None:
     window.scene.clearSelection()
     run_graph(window)
     window.view.frame_all()
-    window.scene.select_nodes([viewer])
-    wait(300)
     window.scene.clearSelection()
+    wait(300)
+    return viewer
+
+
+def editor_red_objects(scene_path: Path) -> None:
+    window = new_window()
+    build_red_graph(window, scene_path)
     shot(window, "editor-objetos-rojos.png")
+    window.close()
+
+
+def skins_gallery(scene_path: Path) -> None:
+    """Una imagen con los cuatro skins (2x2): el aspecto de los nodos no cambia."""
+    window = new_window()
+    build_red_graph(window, scene_path)
+    tiles = []
+    for skin in SKINS.values():
+        window.apply_skin(skin.id)
+        wait(400)
+        tiles.append((skin.label, window.grab()))
+    width, height = tiles[0][1].width(), tiles[0][1].height()
+    sheet = QPixmap(width * 2, height * 2)
+    sheet.fill(QColor("#101010"))
+    painter = QPainter(sheet)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    painter.setFont(QFont("Segoe UI" if sys.platform == "win32" else "Sans", 34, QFont.Weight.Bold))
+    for index, (label, tile) in enumerate(tiles):
+        x, y = (index % 2) * width, (index // 2) * height
+        painter.drawPixmap(x, y, width, height, tile)
+        painter.fillRect(x + 640, y + height - 330, 560, 120, QColor(0, 0, 0, 175))
+        painter.setPen(QColor("#FFFFFF"))
+        painter.drawText(x + 690, y + height - 250, f"Skin «{label}»")
+    painter.end()
+    sheet = sheet.scaled(
+        width,
+        height,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    sheet.save(str(IMAGES / "skins.png"))
+    print("guardada skins.png")
+    window.apply_skin("oscuro")
     window.close()
 
 
@@ -218,6 +260,21 @@ def libraries_dialog() -> None:
     window.close()
 
 
+def preferences_dialog() -> None:
+    window = new_window()
+    window.prefs.skin = "oscuro"
+    # La ruta del archivo de preferencias sale en el diálogo: se muestra una genérica.
+    os.environ["PALANTIR_NODES_CONFIG_DIR"] = r"C:\Users\usuario\AppData\Roaming\PalantirNodes"
+    dialog = PreferencesDialog(window.prefs, window)
+    dialog.setMinimumWidth(560)
+    dialog.show()
+    dialog.resize(560, dialog.layout().totalHeightForWidth(560))
+    shot(dialog, "preferencias.png")
+    os.environ["PALANTIR_NODES_CONFIG_DIR"] = CONFIG
+    dialog.close()
+    window.close()
+
+
 def compile_dialog() -> None:
     window = new_window()
     dialog = CompileDialog(
@@ -241,9 +298,11 @@ def main() -> None:
     scene_path = IMAGES / "escena_ejemplo.png"
     make_scene(scene_path)
     editor_red_objects(scene_path)
+    skins_gallery(scene_path)
     values_and_text()
     custom_nodes_dialog()
     libraries_dialog()
+    preferences_dialog()
     compile_dialog()
 
 

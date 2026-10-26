@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 
@@ -67,6 +67,19 @@ def _validate_definition(cls: NodeType) -> None:
 class NodeRegistry:
     def __init__(self) -> None:
         self._types: dict[str, NodeType] = {}
+        self._listeners: list[Callable[[], None]] = []
+
+    def subscribe(self, callback: Callable[[], None]) -> None:
+        """Avisa (sin argumentos) cada vez que se añade, reemplaza o quita un tipo."""
+        self._listeners.append(callback)
+
+    def unsubscribe(self, callback: Callable[[], None]) -> None:
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
+    def _notify(self) -> None:
+        for callback in list(self._listeners):
+            callback()
 
     def register(self, cls: NodeType) -> NodeType:
         _validate_definition(cls)
@@ -76,17 +89,22 @@ class NodeRegistry:
                 f"El type_id '{cls.type_id}' ya está registrado por {existing.__name__}"
             )
         self._types[cls.type_id] = cls
+        self._notify()
         return cls
 
     def replace(self, cls: NodeType) -> NodeType:
         """Registra ``cls`` sustituyendo al tipo anterior con el mismo ``type_id`` (si lo hay)."""
         _validate_definition(cls)
         self._types[cls.type_id] = cls
+        self._notify()
         return cls
 
     def unregister(self, type_id: str) -> bool:
         """Quita un tipo del registro. ``False`` si no estaba."""
-        return self._types.pop(type_id, None) is not None
+        removed = self._types.pop(type_id, None) is not None
+        if removed:
+            self._notify()
+        return removed
 
     def get(self, type_id: str) -> NodeType | None:
         return self._types.get(type_id)

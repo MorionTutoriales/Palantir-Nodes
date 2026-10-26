@@ -5,16 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import shiboken6
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoStack
+from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDockWidget,
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
+    QSizePolicy,
     QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from palantir_nodes import __version__
@@ -37,15 +43,20 @@ from palantir_nodes.persistence import (
     write_project,
 )
 from palantir_nodes.preferences import Preferences, load_preferences, save_preferences
+from palantir_nodes.skins import SKINS
+from palantir_nodes.ui import icons, theme
 from palantir_nodes.ui.compile_dialog import CompileDialog
 from palantir_nodes.ui.custom_nodes_dialog import CustomNodesDialog
 from palantir_nodes.ui.editor.controller import EditorController
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.view import NodeView
 from palantir_nodes.ui.libraries_dialog import LibrariesDialog
+from palantir_nodes.ui.palette import NodePalette
+from palantir_nodes.ui.panels import DockTitle
 from palantir_nodes.ui.preferences_dialog import PreferencesDialog
 from palantir_nodes.ui.properties.panel import PropertiesPanel
 from palantir_nodes.ui.run_controller import RunController
+from palantir_nodes.ui.theme import apply_theme
 from palantir_nodes.ui.viewer.panel import ViewerPanel
 
 APP_NAME = "Palantir Nodes"
@@ -53,11 +64,56 @@ APP_NAME = "Palantir Nodes"
 PROJECT_FILTER = "Proyecto de Palantir Nodes (*.json);;Todos los archivos (*)"
 MAX_WARNINGS_SHOWN = 12
 
+# Icono (de ``ui/assets``) de cada acción de la ventana.
+ACTION_ICONS = {
+    "action_new": "file-plus",
+    "action_open": "folder-open",
+    "action_save": "save",
+    "action_save_as": "file-down",
+    "action_run": "play",
+    "action_stop": "square",
+    "action_pause": "pause",
+    "action_auto": "refresh-cw",
+    "action_export": "file-code",
+    "action_compile": "package",
+    "action_previews": "image",
+    "action_custom_nodes": "puzzle",
+    "action_new_custom_node": "plus",
+    "action_libraries": "plug",
+    "action_prefs": "settings",
+    "action_undo": "undo-2",
+    "action_redo": "redo-2",
+    "action_quit": "log-out",
+    "action_grid": "grid-3x3",
+    "action_zoom_out": "zoom-out",
+    "action_zoom_in": "zoom-in",
+}
+# Lo mismo para las acciones del editor (``NodeView``).
+VIEW_ACTION_ICONS = {
+    "action_add": "plus",
+    "action_search": "search",
+    "action_delete": "trash-2",
+    "action_duplicate": "layers",
+    "action_copy": "copy",
+    "action_paste": "clipboard",
+    "action_select_all": "scan",
+    "action_deselect": "x",
+    "action_frame": "maximize",
+    "action_frame_nodes": "boxes",
+    "action_add_frame": "box",
+}
+
 
 class MainWindow(QMainWindow):
     def __init__(self, registry: NodeRegistry, startup_messages: list[str] | None = None) -> None:
         super().__init__()
         self.prefs, pref_warnings = load_preferences()
+        theme.apply_skin(self.prefs.skin)  # los colores del skin, antes de crear los widgets
+        self._skin_id = self.prefs.skin
+        self._icon_actions: list[tuple[QAction, str]] = []
+        self._icon_buttons: list[tuple[QToolButton, str]] = []
+        self._dock_titles: list[DockTitle] = []
+        self.setWindowIcon(icons.app_icon())
         self.pinned_node: str | None = None  # nodo en el que está fijado el visor
         self.libraries = LibraryManager(registry)  # librerías activas en el proyecto abierto
         self.custom_library = CustomNodeLibrary(registry)
@@ -69,7 +125,12 @@ class MainWindow(QMainWindow):
         self.controller = EditorController(self.graph, self.undo_stack)
         self.scene = NodeScene(self.graph, self.controller, self)
         self.view = NodeView(self.scene, self.controller, registry)
-        self.setCentralWidget(self.view)
+        self._central = QWidget()
+        central_layout = QVBoxLayout(self._central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.view, 1)
+        self.setCentralWidget(self._central)
 
         self.properties = PropertiesPanel(self.graph, self.controller)
         self.viewer = ViewerPanel()
@@ -77,17 +138,26 @@ class MainWindow(QMainWindow):
         self.last_result = None
         self.project = ProjectData()
         self.project_path: Path | None = None
-        self.properties_dock = self._dock("Propiedades", self.properties, "properties")
-        self.viewer_dock = self._dock("Visor", self.viewer, "viewer")
+        self.palette = NodePalette(registry)
+        self.palette_dock = self._dock("Nodos", self.palette, "palette", "boxes")
+        self.properties_dock = self._dock(
+            "Propiedades", self.properties, "properties", "sliders-horizontal"
+        )
+        self.viewer_dock = self._dock("Visor", self.viewer, "viewer", "monitor")
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.palette_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.viewer_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
         self.splitDockWidget(self.viewer_dock, self.properties_dock, Qt.Orientation.Vertical)
         self.resizeDocks([self.viewer_dock], [340], Qt.Orientation.Horizontal)
+        self.resizeDocks([self.palette_dock], [250], Qt.Orientation.Horizontal)
 
         self._create_actions()
         self._create_menus()
         self._create_toolbar()
+        self._create_view_toolbar()
         self._create_statusbar()
+        self._refresh_icons()
+        self.palette.node_requested.connect(self._add_node_from_palette)
 
         self.scene.selectionChanged.connect(self._on_selection_changed)
         self.scene.pin_requested.connect(self._toggle_pin)
@@ -102,6 +172,7 @@ class MainWindow(QMainWindow):
         self.graph.subscribe(self._on_graph_event)
         self._apply_preferences()
         self._apply_new_project_defaults()
+        self._sync_app_theme()
 
         self.resize(1400, 860)
         self._update_title()
@@ -110,10 +181,13 @@ class MainWindow(QMainWindow):
         for message in startup_messages or []:
             self.show_message(message, 8000)
 
-    def _dock(self, title: str, widget, name: str) -> QDockWidget:
+    def _dock(self, title: str, widget, name: str, icon_name: str) -> QDockWidget:
         dock = QDockWidget(title, self)
         dock.setObjectName(name)
         dock.setWidget(widget)
+        title_bar = DockTitle(title, icon_name, dock)
+        dock.setTitleBarWidget(title_bar)
+        self._dock_titles.append(title_bar)
         dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -166,6 +240,20 @@ class MainWindow(QMainWindow):
             "Convertir el grafo en un programa (.exe) que funciona sin la aplicación ni Python"
         )
         self.action_compile.triggered.connect(self.compile_executable)
+        self.action_grid = QAction("Cuadrícula", self)
+        self.action_grid.setCheckable(True)
+        self.action_grid.setChecked(True)
+        self.action_grid.setToolTip("Mostrar u ocultar la cuadrícula del editor")
+        self.action_grid.toggled.connect(self._set_grid)
+        self.action_zoom_out = QAction("Alejar", self)
+        self.action_zoom_out.setToolTip("Alejar la vista")
+        self.action_zoom_out.triggered.connect(lambda: self.view.zoom_by(1 / 1.25))
+        self.action_zoom_in = QAction("Acercar", self)
+        self.action_zoom_in.setToolTip("Acercar la vista")
+        self.action_zoom_in.triggered.connect(lambda: self.view.zoom_by(1.25))
+        self.action_zoom_reset = QAction("100%", self)
+        self.action_zoom_reset.setToolTip("Zoom al 100%")
+        self.action_zoom_reset.triggered.connect(lambda: self.view.set_zoom(1.0))
         self.action_previews = QAction("Previsualizaciones en los nodos", self)
         self.action_previews.setCheckable(True)
         self.action_previews.setChecked(True)
@@ -202,6 +290,7 @@ class MainWindow(QMainWindow):
         self.action_quit = QAction("Salir", self)
         self.action_quit.setShortcut(QKeySequence("Ctrl+Q"))
         self.action_quit.triggered.connect(self.close)
+        self._register_action_icons()
 
     def _create_menus(self) -> None:
         bar = self.menuBar()
@@ -231,10 +320,30 @@ class MainWindow(QMainWindow):
 
         view_menu = bar.addMenu("&Ver")
         view_menu.addAction(self.view.action_frame)
+        view_menu.addAction(self.action_grid)
         view_menu.addAction(self.action_previews)
         view_menu.addSeparator()
-        view_menu.addAction(self.properties_dock.toggleViewAction())
-        view_menu.addAction(self.viewer_dock.toggleViewAction())
+        for dock, icon_name in (
+            (self.palette_dock, "boxes"),
+            (self.properties_dock, "sliders-horizontal"),
+            (self.viewer_dock, "monitor"),
+        ):
+            toggle = dock.toggleViewAction()
+            self._icon_actions.append((toggle, icon_name))
+            view_menu.addAction(toggle)
+        view_menu.addSeparator()
+        self._skin_menu = view_menu.addMenu("Skin")
+        self._skin_menu_icon = "palette"
+        self._skin_group = QActionGroup(self)
+        self._skin_actions: dict[str, QAction] = {}
+        for skin in SKINS.values():
+            action = self._skin_menu.addAction(skin.label)
+            action.setCheckable(True)
+            action.setToolTip(skin.description)
+            action.setData(skin.id)
+            self._skin_group.addAction(action)
+            self._skin_actions[skin.id] = action
+        self._skin_group.triggered.connect(lambda action: self.set_skin(action.data()))
 
         nodes_menu = bar.addMenu("&Nodos")
         nodes_menu.addAction(self.action_custom_nodes)
@@ -252,28 +361,84 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Principal", self)
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        toolbar.addAction(self.action_new)
-        toolbar.addAction(self.action_open)
-        toolbar.addAction(self.action_save)
-        toolbar.addAction(self.action_save_as)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toolbar.setIconSize(QSize(18, 18))
+        for action in (self.action_new, self.action_open, self.action_save, self.action_save_as):
+            toolbar.addAction(action)
         toolbar.addSeparator()
-        toolbar.addAction(self.action_run)
-        toolbar.addAction(self.action_auto)
-        toolbar.addAction(self.action_pause)
-        toolbar.addAction(self.action_stop)
+        for action in (self.action_undo, self.action_redo):
+            toolbar.addAction(action)
+            toolbar.widgetForAction(action).setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonIconOnly
+            )
         toolbar.addSeparator()
-        toolbar.addAction(self.action_export)
+        for action in (self.action_run, self.action_auto, self.action_pause, self.action_stop):
+            toolbar.addAction(action)
+        run_button = toolbar.widgetForAction(self.action_run)
+        run_button.setProperty("primary", True)  # el botón principal, con el color de acento
         toolbar.addSeparator()
+        export_menu = QMenu(self)
+        export_menu.addAction(self.action_export)
+        export_menu.addAction(self.action_compile)
+        self._export_button = QToolButton()
+        self._export_button.setText("Exportar ▾")
+        self._export_button.setToolTip("Exportar a Python o compilar a un ejecutable")
+        self._export_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._export_button.setMenu(export_menu)
+        self._export_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._icon_buttons.append((self._export_button, "file-code"))
+        toolbar.addWidget(self._export_button)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
         toolbar.addAction(self.action_prefs)
+        self.main_toolbar = toolbar
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+    def _create_view_toolbar(self) -> None:
+        """Barra sobre el lienzo: cuadrícula, zoom, ajustar vista y miniaturas."""
+        bar = QToolBar("Vista", self._central)
+        bar.setObjectName("view_toolbar")
+        bar.setMovable(False)
+        bar.setIconSize(QSize(16, 16))
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        for action in (
+            self.action_grid,
+            None,
+            self.action_zoom_out,
+            self.action_zoom_reset,
+            self.action_zoom_in,
+            None,
+            self.view.action_frame,
+        ):
+            if action is None:
+                bar.addSeparator()
+                continue
+            bar.addAction(action)
+        for action in (self.action_grid, self.action_zoom_out, self.action_zoom_in):
+            bar.widgetForAction(action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        bar.addWidget(spacer)
+        bar.addAction(self.action_previews)
+        bar.widgetForAction(self.action_previews).setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        bar.addAction(self.view.action_frame_nodes)
+        bar.widgetForAction(self.view.action_frame_nodes).setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        self.view_toolbar = bar
+        self._central.layout().insertWidget(0, bar)
 
     def _create_statusbar(self) -> None:
         status = self.statusBar()
+        self._counts_icon = QLabel()
         self._counts_label = QLabel()
+        self._zoom_icon = QLabel()
         self._zoom_label = QLabel()
-        status.addPermanentWidget(self._counts_label)
-        status.addPermanentWidget(self._zoom_label)
+        for widget in (self._counts_icon, self._counts_label, self._zoom_icon, self._zoom_label):
+            status.addPermanentWidget(widget)
         self._update_zoom_label(self.view.zoom)
 
     # -- comportamiento ----------------------------------------------------------------
@@ -291,6 +456,7 @@ class MainWindow(QMainWindow):
 
     def _update_zoom_label(self, zoom: float) -> None:
         self._zoom_label.setText(f"Zoom {zoom * 100:.0f}%")
+        self.action_zoom_reset.setText(f"{zoom * 100:.0f}%")
 
     def _update_counts(self) -> None:
         self._counts_label.setText(
@@ -358,11 +524,86 @@ class MainWindow(QMainWindow):
     def _on_realtime_stopped(self, reason: str) -> None:
         self.show_message(f"Tiempo real detenido: {reason}" if reason else "Tiempo real detenido")
 
+    # -- aspecto -----------------------------------------------------------------------
+
+    def _register_action_icons(self) -> None:
+        for attribute, name in ACTION_ICONS.items():
+            action = getattr(self, attribute, None)
+            if action is not None:
+                self._icon_actions.append((action, name))
+        for attribute, name in VIEW_ACTION_ICONS.items():
+            self._icon_actions.append((getattr(self.view, attribute), name))
+
+    def _refresh_icons(self) -> None:
+        """Vuelve a dibujar todos los iconos con los colores del skin activo."""
+        for action, name in self._icon_actions:
+            action.setIcon(icons.icon(name))
+        for button, name in self._icon_buttons:
+            button.setIcon(icons.icon(name))
+        self._skin_menu.setIcon(icons.icon("palette"))
+        self._counts_icon.setPixmap(icons.pixmap("workflow", theme.Colors.TEXT_DIM, 16))
+        self._zoom_icon.setPixmap(icons.pixmap("zoom-in", theme.Colors.TEXT_DIM, 16))
+
+    def _sync_app_theme(self) -> None:
+        """Aplica el skin a la hoja de estilo de la aplicación (si usa nuestro tema)."""
+        app = QApplication.instance()
+        if app is not None and app.styleSheet():
+            apply_theme(app, self._skin_id)
+            for button in self.main_toolbar.findChildren(QToolButton):
+                button.style().unpolish(button)
+                button.style().polish(button)
+        action = self._skin_actions.get(self._skin_id)
+        if action is not None:
+            action.setChecked(True)
+
+    def apply_skin(self, skin_id: str) -> None:
+        """Cambia el aspecto de toda la interfaz al instante. Los nodos no cambian."""
+        skin = theme.apply_skin(skin_id)
+        self._skin_id = skin.id
+        icons.clear_cache()
+        self._sync_app_theme()
+        self._refresh_icons()
+        self.palette.refresh()
+        for title in self._dock_titles:
+            title.refresh_icons()
+        self.viewer.refresh_skin()
+        self._on_selection_changed()  # las propiedades se reconstruyen con los colores nuevos
+        if self.last_result is not None:
+            self.properties.set_statuses(self.last_result.errors, self.last_result.blocked)
+        self.view.viewport().update()
+        self.scene.update()
+
+    def set_skin(self, skin_id: str) -> None:
+        """Elige un skin, lo aplica y lo guarda en las preferencias."""
+        if skin_id not in SKINS:
+            return
+        self.prefs.skin = skin_id
+        self.apply_skin(skin_id)
+        self._save_preferences(warn=False)
+
+    def _set_grid(self, visible: bool) -> None:
+        self.view.set_grid_visible(visible)
+        if self.prefs.show_grid != visible:
+            self.prefs.show_grid = visible
+            self._save_preferences(warn=False)
+
+    def _add_node_from_palette(self, type_id: str) -> None:
+        """Añade el nodo elegido en el panel «Nodos» en el centro de lo que se ve."""
+        center = self.view.visible_center()
+        shift = 26 * (len(self.graph.nodes) % 8)  # en cascada, para que no se tapen
+        self.controller.add_node(type_id, QPointF(center.x() - 95 + shift, center.y() - 40 + shift))
+        self.view.setFocus()
+
     # -- preferencias ------------------------------------------------------------------
 
     def _apply_preferences(self) -> None:
         """Aplica al editor y al motor las preferencias que afectan a la sesión actual."""
         self.view.set_grid_visible(self.prefs.show_grid)
+        self.action_grid.blockSignals(True)
+        self.action_grid.setChecked(self.prefs.show_grid)
+        self.action_grid.blockSignals(False)
+        if self.prefs.skin != self._skin_id:
+            self.apply_skin(self.prefs.skin)
         self.view.zoom_step = self.prefs.zoom_speed
         self.runner.set_preview_rate(self.prefs.preview_rate_hz)
         apply_import_paths(self.prefs.import_paths)

@@ -231,7 +231,7 @@ def test_run_shows_image_and_reports_errors_on_nodes(qtbot, real_window):
         win.runner.run()
     assert win.scene.node_items[load].status == "error"  # sin archivo
     assert win.scene.node_items[gray].status == "blocked"
-    assert win.viewer.stack.currentWidget() is win.viewer.message
+    assert win.viewer.stack.currentWidget() is win.viewer.empty  # la página de mensajes
     assert "ningún archivo" in win.properties._statuses[load][1]
 
     win.controller.set_param(load, "path", win.image_path)

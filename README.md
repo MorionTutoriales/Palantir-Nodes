@@ -10,7 +10,7 @@ script de Python o a un ejecutable.
 [![Licencia: GPL v3 o posterior](https://img.shields.io/badge/licencia-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)
 ![Interfaz: PySide6](https://img.shields.io/badge/interfaz-PySide6-41CD52.svg)
-![Pruebas: 1056](https://img.shields.io/badge/pruebas-1056-brightgreen.svg)
+![Pruebas: 1056](https://img.shields.io/badge/pruebas-1100-brightgreen.svg)
 
 ![Palantir Nodes: detección de objetos rojos](docs/images/editor-objetos-rojos.png)
 
@@ -32,7 +32,9 @@ exporta a un script de Python independiente o se compila a un programa que corre
 ## Características
 
 **Un editor cómodo**
-- Tema oscuro, cuadrícula, zoom y desplazamiento; conexiones validadas por tipo (no se pueden
+- **Interfaz cuidada:** iconos en todas las barras y menús, un **panel «Nodos»** con buscador (doble clic o arrastra para añadir), barra de vista con zoom y cuadrícula, y paneles que se acoplan, se separan o se cierran.
+- **Skins:** cambia el aspecto de toda la interfaz al instante (Oscuro, Medianoche, Bosque, Claro); los nodos conservan siempre su aspecto.
+- Cuadrícula, zoom y desplazamiento; conexiones validadas por tipo (no se pueden
   crear ciclos ni conectar tipos incompatibles) y deshacer/rehacer de todo.
 - **Edición dentro del nodo:** clic para escribir, arrastrar para ajustar números, deslizadores,
   listas, selector de color. Cada nodo con imagen muestra su **miniatura**.
@@ -66,6 +68,10 @@ exporta a un script de Python independiente o se compila a un programa que corre
 <tr>
 <td width="50%"><b>Valores, texto y JSON</b><br>Deslizador, trigonometría, conversiones y lectura de resultados en nodos.<br><img src="docs/images/valores-y-texto.png"></td>
 <td width="50%"><b>Nodos personalizados</b><br>Una función de Python se convierte en nodo; el panel muestra lo que detecta.<br><img src="docs/images/nodos-personalizados.png"></td>
+</tr>
+<tr>
+<td width="50%"><b>Skins</b><br>Cuatro aspectos para la interfaz (aquí el mismo grafo); los nodos no cambian.<br><img src="docs/images/skins.png"></td>
+<td width="50%"><b>Preferencias</b><br>El skin se elige en Preferencias → Apariencia, o en Ver → Skin.<br><img src="docs/images/preferencias.png"></td>
 </tr>
 <tr>
 <td width="50%"><b>Librerías por proyecto</b><br>Activa solo lo que necesitas; la aplicación indica si falta un paquete y lo instala.<br><img src="docs/images/librerias.png"></td>
@@ -203,12 +209,13 @@ Los resultados se pueden convertir a **JSON** (`Detections to JSON`, `Value to J
 | Exportar a Python / Compilar | `Ctrl+E` / `Ctrl+Shift+E` |
 | Nodos personalizados / Librerías | `Ctrl+Shift+N` / `Ctrl+Shift+L` |
 | Preferencias | `Ctrl+,` |
+| Cambiar de skin | Menú Ver → Skin |
 
 ## Para desarrolladores
 
 ```bash
 .venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest          # 1056 pruebas
+.venv\Scripts\python -m pytest          # 1100 pruebas
 .venv\Scripts\python -m ruff check src tests tools
 ```
 
@@ -228,6 +235,7 @@ src/palantir_nodes/
 ├── libraries/     librerías opcionales (red, TCP, MediaPipe)
 ├── persistence/   proyectos JSON versionados
 ├── build/         compilación a ejecutable
+├── skins.py       aspectos de la interfaz (datos, sin Qt)
 └── ui/            interfaz (editor, propiedades, visor, diálogos)
 ```
 
@@ -243,6 +251,8 @@ Palantir Nodes es software libre, publicado bajo la **GNU General Public License
 posterior** (GPL-3.0-or-later). Puedes usarlo, estudiarlo, modificarlo y redistribuirlo; las
 versiones modificadas que distribuyas deben publicarse también bajo la GPL. Consulta el archivo
 [LICENSE](LICENSE).
+
+Los iconos de la interfaz son de [Lucide](https://lucide.dev) (licencia ISC, compatible con la GPL); el detalle de todo lo de terceros está en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Los grafos y proyectos que crees con la aplicación son tuyos. Usa [PySide6](https://doc.qt.io/qtforpython-6/)
 (LGPL), [OpenCV](https://opencv.org) (Apache 2.0), [NumPy](https://numpy.org) (BSD) y, de forma

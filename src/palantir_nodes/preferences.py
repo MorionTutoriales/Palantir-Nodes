@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from palantir_nodes.persistence.files import write_project
+from palantir_nodes.skins import DEFAULT_SKIN, SKINS
 
 PREFERENCES_FORMAT = "palantir-nodes-preferences"
 PREFERENCES_VERSION = 1
@@ -44,6 +45,7 @@ def preferences_path() -> Path:
 class Preferences:
     reopen_last_project: bool = False
     last_project: str = ""
+    skin: str = DEFAULT_SKIN  # aspecto de la interfaz (ver ``skins.py``)
     show_grid: bool = True
     zoom_speed: float = 1.15  # factor por paso de la rueda
     auto_run_default: bool = True  # valor para proyectos nuevos
@@ -75,6 +77,9 @@ class Preferences:
                 warnings.append(
                     f"Preferencia '{item.name}' inválida ({value!r}); se usa {default!r}"
                 )
+        if prefs.skin not in SKINS:
+            warnings.append(f"El skin '{prefs.skin}' no existe; se usa '{DEFAULT_SKIN}'")
+            prefs.skin = DEFAULT_SKIN
         return prefs, warnings
 
 

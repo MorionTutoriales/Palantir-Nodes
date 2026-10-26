@@ -28,6 +28,7 @@ from palantir_nodes.ui.editor.node_item import NodeItem
 from palantir_nodes.ui.editor.scene import NodeScene
 from palantir_nodes.ui.editor.search_popup import NodeSearchPopup
 from palantir_nodes.ui.editor.socket_item import SocketItem
+from palantir_nodes.ui.palette import NODE_MIME
 from palantir_nodes.ui.theme import Colors
 
 GRID_STEP = 20
@@ -64,6 +65,7 @@ class NodeView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)  # nodos arrastrados desde el panel «Nodos»
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.centerOn(0, 0)
         self._create_actions()
@@ -159,6 +161,52 @@ class NodeView(QGraphicsView):
         self.scale(zoom, zoom)
         self.centerOn(center[0], center[1])
         self.zoom_changed.emit(self.zoom)
+
+    def zoom_by(self, factor: float) -> None:
+        """Acerca o aleja desde el centro de la vista (para los botones de la barra)."""
+        self.set_zoom(self.zoom * factor)
+
+    def set_zoom(self, target: float) -> None:
+        target = max(ZOOM_MIN, min(ZOOM_MAX, target))
+        factor = target / self.zoom
+        if abs(factor - 1.0) < 1e-6:
+            return
+        self.field_editor.close_inline(commit=True)
+        anchor = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.scale(factor, factor)
+        self.setTransformationAnchor(anchor)
+        self.zoom_changed.emit(self.zoom)
+
+    def visible_center(self) -> QPointF:
+        """Centro de lo que se ve ahora mismo, en coordenadas de la escena."""
+        return self.mapToScene(self.viewport().rect().center())
+
+    # -- soltar nodos desde el panel «Nodos» ---------------------------------------------
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(NODE_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if event.mimeData().hasFormat(NODE_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        if not event.mimeData().hasFormat(NODE_MIME):
+            event.ignore()
+            return
+        text = bytes(event.mimeData().data(NODE_MIME)).decode("utf-8")
+        origin = self.mapToScene(event.position().toPoint())
+        for index, type_id in enumerate(t for t in text.split("\n") if t):
+            if type_id in self.registry:
+                self.controller.add_node(type_id, origin + QPointF(28 * index, 28 * index))
+        event.acceptProposedAction()
+        self.setFocus()
 
     def frame_all(self) -> None:
         rect = self.scene().itemsBoundingRect()

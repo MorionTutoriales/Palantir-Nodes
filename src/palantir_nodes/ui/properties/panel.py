@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from palantir_nodes.core.graph import Graph, GraphEvent, GraphEventKind
 from palantir_nodes.nodes.categories import get_category
 from palantir_nodes.ui.editor.controller import EditorController
+from palantir_nodes.ui.panels import EmptyState
 from palantir_nodes.ui.properties.widgets import ValueWidget, create_value_widget
 from palantir_nodes.ui.theme import Colors
 
@@ -127,16 +128,16 @@ class PropertiesPanel(QWidget):
         self._scroll.setWidget(content)
 
         if self.node_id is None:
-            text = (
-                f"{len(node_ids)} nodos seleccionados.\nSelecciona uno solo para editarlo."
-                if node_ids
-                else "Selecciona un nodo para ver sus propiedades."
-            )
-            hint = QLabel(text)
-            hint.setStyleSheet(f"color: {Colors.TEXT_DIM};")
-            hint.setWordWrap(True)
-            layout.addWidget(hint)
-            layout.addStretch(1)
+            if node_ids:
+                empty = EmptyState(
+                    "layers",
+                    f"{len(node_ids)} nodos seleccionados.\nSelecciona uno solo para editarlo.",
+                )
+            else:
+                empty = EmptyState(
+                    "sliders-horizontal", "Selecciona un nodo para ver sus propiedades."
+                )
+            layout.addWidget(empty, 1)
             return
 
         node = self.graph.node(self.node_id)
