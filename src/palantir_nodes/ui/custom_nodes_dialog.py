@@ -203,7 +203,9 @@ def analysis_html(analysis: Analysis, extra_errors: list[Issue] | None = None) -
     esc = html.escape
     parts: list[str] = []
     if analysis.function_name:
-        parts.append(f"<p><b>Función del nodo:</b> <code>{esc(analysis.function_name)}</code></p>")
+        parts.append(
+            f"<p><b>Función del nodo:</b> <code style='font-family:Consolas,monospace'>{esc(analysis.function_name)}</code></p>"
+        )
         inputs = [p for p in analysis.params if p.kind == "input"]
         enums = [p for p in analysis.params if p.kind == "enum"]
         rows: list[str] = []
@@ -213,21 +215,22 @@ def analysis_html(analysis: Analysis, extra_errors: list[Issue] | None = None) -
             elif p.socket_type.value in ("Image", "Any"):
                 detail = f"{p.socket_type.value} — obligatoria"
             else:
-                detail = (
-                    f"{p.socket_type.value} — valor por defecto <code>{esc(repr(p.default))}</code>"
-                )
-            rows.append(f"<li><code>{esc(p.name)}</code>: {detail}</li>")
+                detail = f"{p.socket_type.value} — valor por defecto <code style='font-family:Consolas,monospace'>{esc(repr(p.default))}</code>"
+            rows.append(
+                f"<li><code style='font-family:Consolas,monospace'>{esc(p.name)}</code>: {detail}</li>"
+            )
         for p in enums:
             options = ", ".join(esc(o) for o in p.options)
             rows.append(
-                f"<li><code>{esc(p.name)}</code>: lista [{options}] — por defecto <code>{esc(p.default)}</code></li>"
+                f"<li><code style='font-family:Consolas,monospace'>{esc(p.name)}</code>: lista [{options}] — por defecto <code style='font-family:Consolas,monospace'>{esc(p.default)}</code></li>"
             )
         parts.append(
             "<p><b>Entradas:</b></p>"
             + (f"<ul>{''.join(rows)}</ul>" if rows else "<p><i>ninguna</i></p>")
         )
         outs = [
-            f"<li><code>{esc(o.name)}</code>: {o.socket_type.value}</li>" for o in analysis.outputs
+            f"<li><code style='font-family:Consolas,monospace'>{esc(o.name)}</code>: {o.socket_type.value}</li>"
+            for o in analysis.outputs
         ]
         parts.append(
             "<p><b>Salidas:</b></p>"
@@ -312,9 +315,9 @@ class CustomNodesDialog(QDialog):
         warning.setStyleSheet("color: #D9A441;")
         hint = QLabel(
             "El nodo es la <b>última función pública</b> del código; sus parámetros son las entradas "
-            "y lo que devuelve, las salidas. Anota los tipos: <code>Image, int, float, bool, str, "
-            "Color, Vector2, Vector3, Literal['a','b']</code>. Ya puedes usar <code>np</code>, "
-            "<code>cv2</code> y <code>math</code>."
+            "y lo que devuelve, las salidas. Anota los tipos: <code style='font-family:Consolas,monospace'>Image, int, float, bool, str, "
+            "Color, Vector2, Vector3, Literal['a','b']</code>. Ya puedes usar <code style='font-family:Consolas,monospace'>np</code>, "
+            "<code style='font-family:Consolas,monospace'>cv2</code> y <code style='font-family:Consolas,monospace'>math</code>."
         )
         hint.setWordWrap(True)
         hint.setTextFormat(Qt.TextFormat.RichText)

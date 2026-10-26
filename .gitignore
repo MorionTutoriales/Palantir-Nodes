@@ -8,3 +8,13 @@ dist/
 .ruff_cache/
 .idea/
 .vscode/
+
+# Scripts y ejecutables de prueba
+/grafo*.py
+/ejecutables/
+*.spec
+
+# Cobertura y temporales
+.coverage
+htmlcov/
+*.log

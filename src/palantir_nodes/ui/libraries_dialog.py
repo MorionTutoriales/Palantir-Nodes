@@ -52,13 +52,15 @@ def library_html(library: LibraryInfo) -> str:
                 state = "<span style='color:#7CC77C'>instalado</span>"
             else:
                 state = f"<span style='color:{Colors.LINK_INVALID}'>falta instalarlo</span>"
-            rows.append(f"<li><code>{escape(requirement.package)}</code> — {state}</li>")
+            rows.append(
+                f"<li><code style='font-family:Consolas,monospace'>{escape(requirement.package)}</code> — {state}</li>"
+            )
         parts.append(f"<p>Paquetes necesarios:</p><ul>{''.join(rows)}</ul>")
         if library.missing:
             parts.append(
                 "<p>Pulsa «Instalar paquetes que faltan», o hazlo a mano en la terminal con "
                 "el Python de esta aplicación:<br>"
-                f"<code>{escape(sys.executable)} -m {escape(library.install_command)}</code></p>"
+                f"<code style='font-family:Consolas,monospace'>{escape(sys.executable)} -m {escape(library.install_command)}</code></p>"
                 "<p>Puedes activar la librería igualmente; los nodos avisarán al ejecutarse "
                 "si falta el paquete.</p>"
             )

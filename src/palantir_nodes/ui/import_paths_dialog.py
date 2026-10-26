@@ -33,10 +33,10 @@ class ImportPathsDialog(QDialog):
         self.resize(620, 360)
         intro = QLabel(
             "Carpetas donde los nodos personalizados buscan módulos de Python al hacer "
-            "<code>import</code> (van al final de la ruta de búsqueda). Indica la carpeta que "
-            "<b>contiene</b> el módulo o paquete: para <code>C:\\libs\\mi_lib\\__init__.py</code> "
-            "añade <code>C:\\libs</code>.<br><br>Las librerías instaladas con pip en el Python de "
-            f"la aplicación no necesitan nada:<br><code>{sys.executable}</code>"
+            "<code style='font-family:Consolas,monospace'>import</code> (van al final de la ruta de búsqueda). Indica la carpeta que "
+            "<b>contiene</b> el módulo o paquete: para <code style='font-family:Consolas,monospace'>C:\\libs\\mi_lib\\__init__.py</code> "
+            "añade <code style='font-family:Consolas,monospace'>C:\\libs</code>.<br><br>Las librerías instaladas con pip en el Python de "
+            f"la aplicación no necesitan nada:<br><code style='font-family:Consolas,monospace'>{sys.executable}</code>"
         )
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setWordWrap(True)
