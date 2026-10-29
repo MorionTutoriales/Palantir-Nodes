@@ -1,0 +1,40 @@
+name: CI
+
+# Revisa el código y ejecuta las pruebas en cada cambio.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Pruebas (Windows, Python 3.13)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar
+        run: python -m pip install -e ".[dev]"
+
+      - name: Revisar el código (ruff)
+        run: python -m ruff check src tests tools packaging
+
+      - name: Pruebas
+        run: python -m pytest -q

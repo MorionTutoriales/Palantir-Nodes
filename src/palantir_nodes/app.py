@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QLibraryInfo, QTranslator
 from PySide6.QtWidgets import QApplication
 
+from palantir_nodes import __version__
 from palantir_nodes.nodes.registry import load_builtin_nodes
 from palantir_nodes.ui import icons
 from palantir_nodes.ui.main_window import APP_NAME, MainWindow
@@ -31,6 +32,15 @@ def install_spanish_qt_translations(app: QApplication) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv if argv is None else argv)[1:]
+    if "--version" in args:
+        print(f"{APP_NAME} {__version__}")
+        return 0
+    if "--selftest" in args:  # comprobación sin interfaz visible (la usan las releases)
+        from palantir_nodes import selftest
+
+        return selftest.run()
+
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)

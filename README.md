@@ -7,16 +7,32 @@
 Conecta nodos, ve el resultado al instante —también en tiempo real con tu webcam— y llévalo a un
 script de Python o a un ejecutable.
 
+[![Última versión](https://img.shields.io/github/v/release/MorionTutoriales/Palantir-Nodes?label=versi%C3%B3n&color=4772B3)](https://github.com/MorionTutoriales/Palantir-Nodes/releases/latest)
+[![CI](https://github.com/MorionTutoriales/Palantir-Nodes/actions/workflows/ci.yml/badge.svg)](https://github.com/MorionTutoriales/Palantir-Nodes/actions/workflows/ci.yml)
 [![Licencia: GPL v3 o posterior](https://img.shields.io/badge/licencia-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)
 ![Interfaz: PySide6](https://img.shields.io/badge/interfaz-PySide6-41CD52.svg)
-![Pruebas: 1056](https://img.shields.io/badge/pruebas-1100-brightgreen.svg)
+![Pruebas: 1056](https://img.shields.io/badge/pruebas-1129-brightgreen.svg)
 
 ![Palantir Nodes: detección de objetos rojos](docs/images/editor-objetos-rojos.png)
 
 </div>
 
 ---
+
+## Descargar
+
+**Windows (sin instalar Python):** abre la sección [**Releases**](https://github.com/MorionTutoriales/Palantir-Nodes/releases/latest), descarga
+`PalantirNodes-vX.Y.Z-windows-x64.zip`, descomprímelo donde quieras y abre `PalantirNodes.exe`.
+
+- Si Windows muestra «Windows protegió tu PC», pulsa *Más información* → *Ejecutar de todas
+  formas*: el programa es libre pero no está firmado digitalmente. Junto al `.zip` hay un archivo
+  `.sha256` para comprobar la descarga.
+- Incluye el editor, el motor, la exportación a Python y los nodos de red (WebSocket y TCP). **No**
+  incluye MediaPipe ni la instalación de paquetes desde la aplicación: para eso, instala desde el
+  código fuente (más abajo).
+- **Linux y macOS:** todavía no hay descargas; se puede instalar desde el código fuente, aunque
+  solo está probado en Windows.
 
 ## ¿Qué es?
 
@@ -215,7 +231,7 @@ Los resultados se pueden convertir a **JSON** (`Detections to JSON`, `Value to J
 
 ```bash
 .venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest          # 1100 pruebas
+.venv\Scripts\python -m pytest          # 1129 pruebas
 .venv\Scripts\python -m ruff check src tests tools
 ```
 
@@ -238,6 +254,8 @@ src/palantir_nodes/
 ├── skins.py       aspectos de la interfaz (datos, sin Qt)
 └── ui/            interfaz (editor, propiedades, visor, diálogos)
 ```
+
+Las versiones descargables se construyen solas en GitHub al subir una etiqueta `v*` (ver [docs/publicar.md](docs/publicar.md)); `python tools/build_release.py` hace lo mismo en tu equipo. Los cambios de cada versión están en [CHANGELOG.md](CHANGELOG.md).
 
 Las capturas de `docs/images` se regeneran con `python tools/screenshots.py` y el catálogo
 `docs/nodos.md` con `python tools/gen_nodes_doc.py`.
